@@ -36,6 +36,7 @@ use crate::ast::ListComprehension;
 use crate::ast::Print;
 use crate::ast::RegexCapture;
 use crate::ast::Scan;
+use crate::ast::ScanExpression;
 use crate::ast::ScopedVariable;
 use crate::ast::SetComprehension;
 use crate::ast::Stanza;
@@ -385,6 +386,17 @@ impl Scan {
     }
 }
 
+impl ScanExpression {
+    fn evaluate(&self, exec: &mut ExecutionContext) -> Result<Value, ExecutionError> {
+        match self {
+            Self::StringConstant(expr) => expr.evaluate(exec),
+            Self::Capture(expr) => expr.evaluate(exec),
+            Self::Variable(expr) => expr.get_global(exec).map(|v| v.clone()),
+            Self::RegexCapture(expr) => expr.evaluate(exec),
+        }
+    }
+}
+
 impl Print {
     fn execute(&self, exec: &mut ExecutionContext) -> Result<(), ExecutionError> {
         for value in &self.values {
@@ -682,6 +694,12 @@ impl ScopedVariable {
 }
 
 impl UnscopedVariable {
+    fn get_global<'a>(&self, exec: &'a mut ExecutionContext) -> Result<&'a Value, ExecutionError> {
+        exec.globals.get(self.name).ok_or_else(|| {
+            ExecutionError::UndefinedVariable(format!("{}", self.display_with(exec.ctx)))
+        })
+    }
+
     fn get<'a>(&self, exec: &'a mut ExecutionContext) -> Result<&'a Value, ExecutionError> {
         if let Some(value) = exec.globals.get(self.name) {
             Some(value)
