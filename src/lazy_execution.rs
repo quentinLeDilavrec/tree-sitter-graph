@@ -51,8 +51,8 @@ impl ast::File {
         source: &'tree str,
         functions: &mut Functions,
         globals: &Globals,
-    ) -> Result<Graph<'tree>, ExecutionError> {
-        let mut graph = Graph::new();
+        graph: &mut Graph<'tree>,
+    ) -> Result<(), ExecutionError> {
         if tree.root_node().has_error() {
             return Err(ExecutionError::ParseTreeHasErrors);
         }
@@ -66,7 +66,7 @@ impl ast::File {
                 ctx,
                 tree,
                 source,
-                &mut graph,
+                graph,
                 globals,
                 &mut locals,
                 &mut cursor,
@@ -82,7 +82,7 @@ impl ast::File {
                 .evaluate(&mut EvaluationContext {
                     ctx,
                     source,
-                    graph: &mut graph,
+                    graph,
                     functions,
                     store: &mut store,
                     scoped_store: &mut scoped_store,
@@ -91,7 +91,7 @@ impl ast::File {
                 })
                 .with_context(|| format!("Executing {}", graph_stmt.display_with(ctx, &graph)))?;
         }
-        Ok(graph)
+        Ok(())
     }
 }
 

@@ -9,6 +9,7 @@ use indoc::indoc;
 use tree_sitter::Parser;
 use tree_sitter_graph::ast::File;
 use tree_sitter_graph::functions::Functions;
+use tree_sitter_graph::graph::Graph;
 use tree_sitter_graph::Context;
 use tree_sitter_graph::ExecutionError;
 use tree_sitter_graph::Variables;
@@ -35,7 +36,15 @@ fn execute(python_source: &str, dsl_source: &str) -> Result<String, ExecutionErr
     globals
         .add(ctx.add_identifier("filename"), "test.py".into())
         .map_err(|_| ExecutionError::DuplicateVariable("filename".into()))?;
-    let graph = file.execute_lazy(&mut ctx, &tree, python_source, &mut functions, &globals)?;
+    let mut graph = Graph::new();
+    file.execute_lazy(
+        &mut ctx,
+        &tree,
+        python_source,
+        &mut functions,
+        &globals,
+        &mut graph,
+    )?;
     let result = graph.display_with(&ctx).to_string();
     Ok(result)
 }

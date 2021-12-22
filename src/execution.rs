@@ -63,8 +63,8 @@ impl File {
         source: &'tree str,
         functions: &mut Functions,
         globals: &Globals,
-    ) -> Result<Graph<'tree>, ExecutionError> {
-        let mut graph = Graph::new();
+        graph: &mut Graph<'tree>,
+    ) -> Result<(), ExecutionError> {
         if tree.root_node().has_error() {
             return Err(ExecutionError::ParseTreeHasErrors);
         }
@@ -78,7 +78,7 @@ impl File {
                 ctx,
                 tree,
                 source,
-                &mut graph,
+                graph,
                 functions,
                 globals,
                 &mut locals,
@@ -88,7 +88,7 @@ impl File {
                 &mut cursor,
             )?;
         }
-        Ok(graph)
+        Ok(())
     }
 }
 

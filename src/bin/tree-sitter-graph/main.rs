@@ -16,6 +16,7 @@ use tree_sitter::Parser;
 use tree_sitter_config::Config;
 use tree_sitter_graph::ast::File;
 use tree_sitter_graph::functions::Functions;
+use tree_sitter_graph::graph::Graph;
 use tree_sitter_graph::Context;
 use tree_sitter_graph::Variables;
 use tree_sitter_loader::Loader;
@@ -73,10 +74,25 @@ fn main() -> Result<()> {
         .with_context(|| anyhow!("Error parsing TSG file {}", tsg_path.display()))?;
     let mut functions = Functions::stdlib(&mut ctx);
     let globals = Variables::new();
-    let graph = if lazy {
-        file.execute_lazy(&mut ctx, &tree, &source, &mut functions, &globals)
+    let mut graph = Graph::new();
+    if lazy {
+        file.execute_lazy(
+            &mut ctx,
+            &tree,
+            &source,
+            &mut functions,
+            &globals,
+            &mut graph,
+        )
     } else {
-        file.execute(&mut ctx, &tree, &source, &mut functions, &globals)
+        file.execute(
+            &mut ctx,
+            &tree,
+            &source,
+            &mut functions,
+            &globals,
+            &mut graph,
+        )
     }
     .with_context(|| anyhow!("Could not execute TSG file {}", tsg_path.display()))?;
     if !quiet {
