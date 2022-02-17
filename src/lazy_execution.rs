@@ -63,7 +63,7 @@ impl ast::File {
         functions: &mut Functions,
         globals: &Globals,
     ) -> Result<(), ExecutionError> {
-        if tree.root_node().has_error() {
+        if (!self.allow_syntax_errors) && tree.root_node().has_error() {
             return Err(ExecutionError::ParseTreeHasErrors);
         }
         let mut locals = VariableMap::new();

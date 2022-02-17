@@ -24,6 +24,8 @@ pub struct File {
     pub query: Option<Query>,
     /// The list of stanzas in the file
     pub stanzas: Vec<Stanza>,
+    /// Whether syntax errors are allowed in the file
+    pub allow_syntax_errors: bool,
 }
 
 impl File {
@@ -32,7 +34,16 @@ impl File {
             language,
             query: None,
             stanzas: Vec::new(),
+            allow_syntax_errors: false,
         }
+    }
+
+    pub fn allow_syntax_errors(&self) -> bool {
+        self.allow_syntax_errors
+    }
+
+    pub fn set_allow_syntax_errors(&mut self, allow_syntax_errors: bool) {
+        self.allow_syntax_errors = allow_syntax_errors;
     }
 }
 

@@ -44,6 +44,11 @@ fn main() -> Result<()> {
         )
         .arg(Arg::with_name("scope").long("scope").takes_value(true))
         .arg(Arg::with_name("json").long("json").takes_value(false))
+        .arg(
+            Arg::with_name("allow_syntax_errors")
+                .long("allow-syntax-errors")
+                .takes_value(false),
+        )
         .get_matches();
 
     let tsg_path = Path::new(matches.value_of("tsg").unwrap());
@@ -69,6 +74,7 @@ fn main() -> Result<()> {
         .ok_or_else(|| anyhow!("Could not parse {}", source_path.display()))?;
     let file = File::from_str(language, &tsg)
         .with_context(|| format!("Error parsing TSG file {}", tsg_path.display()))?;
+    file.set_allow_syntax_errors(matches.is_present("allow_syntax_errors"));
     let mut functions = Functions::stdlib();
     let globals = Variables::new();
     let graph = if lazy {
