@@ -13,7 +13,7 @@ use tree_sitter_graph::Identifier;
 
 #[test]
 fn can_overwrite_attributes() {
-    let mut graph = Graph::new();
+    let mut graph = Graph::<tree_sitter::Node<'_>>::new();
     let node = graph.add_graph_node();
     let attrs = &mut graph[node].attributes;
     let name = Identifier::from("name");
@@ -24,7 +24,7 @@ fn can_overwrite_attributes() {
 
 #[test]
 fn can_iterate_graph_nodes() {
-    let mut graph = Graph::new();
+    let mut graph = Graph::<tree_sitter::Node<'_>>::new();
     let node0 = graph.add_graph_node();
     let node1 = graph.add_graph_node();
     let node2 = graph.add_graph_node();
@@ -34,7 +34,7 @@ fn can_iterate_graph_nodes() {
 
 #[test]
 fn can_iterate_graph_edges() {
-    let mut graph = Graph::new();
+    let mut graph = Graph::<tree_sitter::Node<'_>>::new();
     let node0 = graph.add_graph_node();
     let node1 = graph.add_graph_node();
     let node2 = graph.add_graph_node();

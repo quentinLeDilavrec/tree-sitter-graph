@@ -9,6 +9,8 @@ use indoc::indoc;
 use tree_sitter::Parser;
 use tree_sitter_graph::ast::File;
 use tree_sitter_graph::functions::Functions;
+use tree_sitter_graph::graph::GraphErazing;
+use tree_sitter_graph::graph::TSNodeErazing;
 use tree_sitter_graph::ExecutionConfig;
 use tree_sitter_graph::ExecutionError;
 use tree_sitter_graph::Identifier;
@@ -31,7 +33,7 @@ fn execute(python_source: &str, dsl_source: &str) -> Result<String, ExecutionErr
     let tree = parser.parse(python_source, None).unwrap();
     let file =
         File::from_str(tree_sitter_python::language(), dsl_source).expect("Cannot parse file");
-    let functions = Functions::stdlib();
+    let functions = Functions::<GraphErazing<TSNodeErazing>>::stdlib();
     let mut globals = Variables::new();
     globals
         .add(Identifier::from("filename"), "test.py".into())

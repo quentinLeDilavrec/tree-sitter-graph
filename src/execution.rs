@@ -17,18 +17,23 @@ use crate::ast::Stanza;
 use crate::ast::Variable;
 use crate::execution::error::ExecutionError;
 use crate::functions::Functions;
+use crate::generic_query::MyQueryMatch;
 use crate::graph::Attributes;
 use crate::graph::Graph;
+use crate::graph::GraphErazing;
+use crate::graph::TSNodeErazing;
 use crate::graph::Value;
+use crate::graph::WithSynNodes;
 use crate::variables::Globals;
 use crate::Identifier;
 use crate::Location;
+use crate::MyTSNode;
 
 pub(crate) mod error;
 mod lazy;
 mod strict;
 
-impl File {
+impl File<tree_sitter::Query> {
     /// Executes this graph DSL file against a source file.  You must provide the parsed syntax
     /// tree (`tree`) as well as the source text that it was parsed from (`source`).  You also
     /// provide the set of functions and global variables that are available during execution.
@@ -36,9 +41,9 @@ impl File {
         &self,
         tree: &'tree Tree,
         source: &'tree str,
-        config: &ExecutionConfig,
+        config: &ExecutionConfig<GraphErazing<TSNodeErazing>>,
         cancellation_flag: &dyn CancellationFlag,
-    ) -> Result<Graph<'tree>, ExecutionError> {
+    ) -> Result<Graph<MyTSNode<'tree>>, ExecutionError> {
         let mut graph = Graph::new();
         self.execute_into(&mut graph, tree, source, config, cancellation_flag)?;
         Ok(graph)
@@ -51,10 +56,10 @@ impl File {
     /// “pre-seed” the graph with some predefined nodes and/or edges before executing the DSL file.
     pub fn execute_into<'a, 'tree>(
         &self,
-        graph: &mut Graph<'tree>,
+        graph: &mut Graph<MyTSNode<'tree>>,
         tree: &'tree Tree,
         source: &'tree str,
-        config: &ExecutionConfig,
+        config: &ExecutionConfig<GraphErazing<TSNodeErazing>>,
         cancellation_flag: &dyn CancellationFlag,
     ) -> Result<(), ExecutionError> {
         if config.lazy {
@@ -62,42 +67,6 @@ impl File {
         } else {
             self.execute_strict_into(graph, tree, source, config, cancellation_flag)
         }
-    }
-
-    pub(self) fn check_globals(&self, globals: &mut Globals) -> Result<(), ExecutionError> {
-        for global in &self.globals {
-            match globals.get(&global.name) {
-                None => {
-                    if let Some(default) = &global.default {
-                        globals
-                            .add(global.name.clone(), default.to_string().into())
-                            .map_err(|_| {
-                                ExecutionError::DuplicateVariable(format!(
-                                    "global variable {} already defined",
-                                    global.name
-                                ))
-                            })?;
-                    } else {
-                        return Err(ExecutionError::MissingGlobalVariable(
-                            global.name.as_str().to_string(),
-                        ));
-                    }
-                }
-                Some(value) => {
-                    if global.quantifier == CaptureQuantifier::ZeroOrMore
-                        || global.quantifier == CaptureQuantifier::OneOrMore
-                    {
-                        if value.as_list().is_err() {
-                            return Err(ExecutionError::ExpectedList(
-                                global.name.as_str().to_string(),
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(())
     }
 
     pub fn try_visit_matches<'tree, E, F>(
@@ -108,7 +77,7 @@ impl File {
         mut visit: F,
     ) -> Result<(), E>
     where
-        F: FnMut(Match<'_, 'tree>) -> Result<(), E>,
+        F: FnMut(Match<MyQueryMatch<'_, 'tree>>) -> Result<(), E>,
     {
         if lazy {
             let file_query = self.query.as_ref().expect("missing file query");
@@ -161,7 +130,46 @@ impl File {
     }
 }
 
-impl Stanza {
+impl<Q: crate::GenQuery, I> File<Q, I> {
+
+    pub(self) fn check_globals(&self, globals: &mut Globals) -> Result<(), ExecutionError> {
+        for global in &self.globals {
+            match globals.get(&global.name) {
+                None => {
+                    if let Some(default) = &global.default {
+                        globals
+                            .add(global.name.clone(), default.to_string().into())
+                            .map_err(|_| {
+                                ExecutionError::DuplicateVariable(format!(
+                                    "global variable {} already defined",
+                                    global.name
+                                ))
+                            })?;
+                    } else {
+                        return Err(ExecutionError::MissingGlobalVariable(
+                            global.name.as_str().to_string(),
+                        ));
+                    }
+                }
+                Some(value) => {
+                    if global.quantifier == CaptureQuantifier::ZeroOrMore
+                        || global.quantifier == CaptureQuantifier::OneOrMore
+                    {
+                        if value.as_list().is_err() {
+                            return Err(ExecutionError::ExpectedList(
+                                global.name.as_str().to_string(),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl Stanza<tree_sitter::Query> {
     pub fn try_visit_matches<'tree, E, F>(
         &self,
         tree: &'tree Tree,
@@ -169,41 +177,46 @@ impl Stanza {
         mut visit: F,
     ) -> Result<(), E>
     where
-        F: FnMut(Match<'_, 'tree>) -> Result<(), E>,
+        F: FnMut(Match<QueryMatch<'_, 'tree>>) -> Result<(), E>,
     {
-        self.try_visit_matches_strict(tree, source, |mat| {
-            let named_captures : Vec<(String,CaptureQuantifier,u32)> = self
-                .query
-                .capture_names()
-                .iter()
-                .flat_map(|name| {
-                    if let Some(index) = self.query.capture_index_for_name(name) {
-                        let quantifier = self.query.capture_quantifiers(0)[index as usize];
-                        Some ((name.to_string(),quantifier,index))
-                    } else {
-                        None
-                    }
-                })
-                .filter(|c| c.2 != self.full_match_stanza_capture_index as u32)
-                .collect();
-            visit(Match {
-                mat,
-                full_capture_index: self.full_match_stanza_capture_index as u32,
-                named_captures,
-                query_location: self.range.start,
-            })
-        })
+        // let tree = crate::generic_query::MyTSNode {
+        //     node: tree.root_node(),
+        //     source,
+        // };
+        todo!()
+        // self.try_visit_matches_strict(tree, source, |mat| {
+        //     let named_captures: Vec<(String, CaptureQuantifier, u32)> = self
+        //         .query
+        //         .capture_names()
+        //         .iter()
+        //         .flat_map(|name| {
+        //             if let Some(index) = self.query.capture_index_for_name(name) {
+        //                 let quantifier = self.query.capture_quantifiers(0)[index as usize];
+        //                 Some((name.to_string(), quantifier, index))
+        //             } else {
+        //                 None
+        //             }
+        //         })
+        //         .filter(|c| c.2 != self.full_match_stanza_capture_index)
+        //         .collect();
+        //     visit(Match {
+        //         mat,
+        //         full_capture_index: self.full_match_stanza_capture_index,
+        //         named_captures,
+        //         query_location: self.range.start,
+        //     })
+        // })
     }
 }
 
-pub struct Match<'a, 'tree> {
-    mat: QueryMatch<'a, 'tree>,
+pub struct Match<QM> {
+    mat: QM, // QueryMatch<'a, 'tree>
     full_capture_index: u32,
     named_captures: Vec<(String, CaptureQuantifier, u32)>,
     query_location: Location,
 }
 
-impl<'a, 'tree> Match<'a, 'tree> {
+impl<'a, 'tree> Match<QueryMatch<'a, 'tree>> {
     /// Return the top-level matched node.
     pub fn full_capture(&self) -> Node<'tree> {
         self.mat
@@ -237,7 +250,9 @@ impl<'a, 'tree> Match<'a, 'tree> {
             .find(|c| c.0 == name)
             .map(|c| (c.1, self.mat.nodes_for_capture_index(c.2)))
     }
+}
 
+impl<QM> Match<QM> {
     /// Return an iterator over all capture names.
     pub fn capture_names(&self) -> impl Iterator<Item = String> + '_ {
         self.named_captures.iter().map(|c| c.0.clone())
@@ -250,8 +265,8 @@ impl<'a, 'tree> Match<'a, 'tree> {
 }
 
 /// Configuration for the execution of a File
-pub struct ExecutionConfig<'a, 'g> {
-    pub(crate) functions: &'a Functions,
+pub struct ExecutionConfig<'a, 'g, G> {
+    pub(crate) functions: &'a Functions<G>,
     pub(crate) globals: &'a Globals<'g>,
     pub(crate) lazy: bool,
     pub(crate) location_attr: Option<Identifier>,
@@ -259,8 +274,8 @@ pub struct ExecutionConfig<'a, 'g> {
     pub(crate) match_node_attr: Option<Identifier>,
 }
 
-impl<'a, 'g> ExecutionConfig<'a, 'g> {
-    pub fn new(functions: &'a Functions, globals: &'a Globals<'g>) -> Self {
+impl<'a, 'g, G> ExecutionConfig<'a, 'g, G> {
+    pub fn new(functions: &'a Functions<G>, globals: &'a Globals<'g>) -> Self {
         Self {
             functions,
             globals,
@@ -316,8 +331,8 @@ impl CancellationFlag for NoCancellation {
 pub struct CancellationError(pub &'static str);
 
 impl Value {
-    pub fn from_nodes<'tree, NI: IntoIterator<Item = Node<'tree>>>(
-        graph: &mut Graph<'tree>,
+    pub fn from_nodes<'tree, NI: IntoIterator<Item = G::Node>, G: WithSynNodes>(
+        graph: &mut G,
         nodes: NI,
         quantifier: CaptureQuantifier,
     ) -> Value {
@@ -346,10 +361,10 @@ impl Value {
 }
 
 impl CreateEdge {
-    pub(crate) fn add_debug_attrs(
+    pub(crate) fn add_debug_attrs<G>(
         &self,
         attributes: &mut Attributes,
-        config: &ExecutionConfig,
+        config: &ExecutionConfig<G>,
     ) -> Result<(), ExecutionError> {
         if let Some(location_attr) = &config.location_attr {
             attributes
@@ -361,16 +376,17 @@ impl CreateEdge {
                         self.location.column + 1
                     ),
                 )
-                .map_err(|_| ExecutionError::DuplicateAttribute(location_attr.as_str().into()))?;
+                .map_err(|_| 
+                    ExecutionError::DuplicateAttribute(location_attr.as_str().into()))?;
         }
         Ok(())
     }
 }
 impl Variable {
-    pub(crate) fn add_debug_attrs(
+    pub(crate) fn add_debug_attrs<G>(
         &self,
         attributes: &mut Attributes,
-        config: &ExecutionConfig,
+        config: &ExecutionConfig<G>,
     ) -> Result<(), ExecutionError> {
         if let Some(variable_name_attr) = &config.variable_name_attr {
             attributes
@@ -389,7 +405,8 @@ impl Variable {
                     location_attr.clone(),
                     format!("line {} column {}", location.row + 1, location.column + 1),
                 )
-                .map_err(|_| ExecutionError::DuplicateAttribute(location_attr.as_str().into()))?;
+                .map_err(|_|
+                    ExecutionError::DuplicateAttribute(location_attr.as_str().into()))?;
         }
         Ok(())
     }

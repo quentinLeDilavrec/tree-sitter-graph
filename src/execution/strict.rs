@@ -8,7 +8,7 @@
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use tree_sitter::QueryCursor;
+use tree_sitter::Query;
 use tree_sitter::QueryMatch;
 use tree_sitter::Tree;
 
@@ -48,18 +48,26 @@ use crate::execution::error::ResultWithExecutionError;
 use crate::execution::error::StatementContext;
 use crate::execution::CancellationFlag;
 use crate::execution::ExecutionConfig;
+use crate::generic_query::MyQueryMatch;
+use crate::graph::Erzd;
 use crate::graph::Graph;
+use crate::graph::QMatch;
+use crate::graph::SyntaxNode;
+use crate::graph::SyntaxNodeExt;
 use crate::graph::SyntaxNodeID;
 use crate::graph::SyntaxNodeRef;
 use crate::graph::Value;
+use crate::graph::WithSynNodes;
 use crate::variables::Globals;
 use crate::variables::MutVariables;
 use crate::variables::VariableMap;
 use crate::variables::Variables;
+use crate::GenQuery;
 use crate::Identifier;
 use crate::Location;
+use crate::MyTSNode;
 
-impl File {
+impl File<Query> {
     /// Executes this graph DSL file against a source file, saving the results into an existing
     /// `Graph` instance.  You must provide the parsed syntax tree (`tree`) as well as the source
     /// text that it was parsed from (`source`).  You also provide the set of functions and global
@@ -67,14 +75,15 @@ impl File {
     /// “pre-seed” the graph with some predefined nodes and/or edges before executing the DSL file.
     pub(super) fn execute_strict_into<'a, 'tree>(
         &self,
-        graph: &mut Graph<'tree>,
+        graph: &mut Graph<MyTSNode<'tree>>,
         tree: &'tree Tree,
         source: &'tree str,
-        config: &ExecutionConfig,
+        config: &ExecutionConfig<crate::graph::GraphErazing<crate::graph::TSNodeErazing>>,
         cancellation_flag: &dyn CancellationFlag,
     ) -> Result<(), ExecutionError> {
         let mut globals = Globals::nested(config.globals);
-        self.check_globals(&mut globals)?;
+        self.check_globals(&mut globals).unwrap(); // TODO go back to qmark
+                                                   // self.check_globals(&mut globals)?;
         let mut config = ExecutionConfig {
             functions: config.functions,
             globals: &globals,
@@ -115,7 +124,7 @@ impl File {
         mut visit: F,
     ) -> Result<(), E>
     where
-        F: FnMut(&Stanza, QueryMatch<'_, 'tree>) -> Result<(), E>,
+        F: FnMut(&Stanza<Query>, MyQueryMatch<'_, 'tree>) -> Result<(), E>,
     {
         for stanza in &self.stanzas {
             stanza.try_visit_matches_strict(tree, source, |mat| visit(stanza, mat))?;
@@ -124,17 +133,78 @@ impl File {
     }
 }
 
+impl<Q: GenQuery, I: Copy> File<Q, I> {
+    /// Executes this graph DSL file against a source file, saving the results into an existing
+    /// `Graph` instance.  You must provide the parsed syntax tree (`tree`) as well as the source
+    /// text that it was parsed from (`source`).  You also provide the set of functions and global
+    /// variables that are available during execution. This variant is useful when you need to
+    /// “pre-seed” the graph with some predefined nodes and/or edges before executing the DSL file.
+    pub fn execute_strict_into2<'c, 'tree: 'c, G: WithSynNodes>(
+        &self,
+        graph: &mut G,
+        tree: Q::Node<'tree>,
+        config: &ExecutionConfig<G::LErazing>,
+        cancellation_flag: &dyn CancellationFlag,
+    ) -> Result<(), ExecutionError>
+    where
+        Q: GenQuery<I = I> + 'tree,
+        Q::Node<'tree>: SyntaxNodeExt<QM<'c> = Q::Match<'c, 'tree>>,
+        Q::Match<'c, 'tree>: QMatch<Item = Q::Node<'tree>, I = I>,
+        G: WithSynNodes<Node = Q::Node<'tree>>,
+        G::LErazing: Erzd<Original<'tree> = G>,
+    {
+        let mut globals = Globals::nested(config.globals);
+        self.check_globals(&mut globals)?;
+        let mut config = ExecutionConfig {
+            functions: config.functions,
+            globals: &globals,
+            lazy: config.lazy,
+            location_attr: config.location_attr.clone(),
+            variable_name_attr: config.variable_name_attr.clone(),
+            match_node_attr: config.match_node_attr.clone(),
+        };
+
+        let mut locals = VariableMap::new();
+        let mut scoped = ScopedVariables::new();
+        let current_regex_captures = Vec::new();
+        let mut function_parameters = Vec::new();
+
+        for stanza in &self.stanzas {
+            let mut cursor = Default::default();
+            for mat in stanza.query.matches(&mut cursor, &tree) {
+                cancellation_flag.check("processing matches")?;
+                let mat: Q::Match<'_,'tree> = unsafe { std::mem::transmute(mat) };
+                stanza.execute2(
+                    &mat,
+                    graph,
+                    &mut config,
+                    &mut locals,
+                    &mut scoped,
+                    &current_regex_captures,
+                    &mut function_parameters,
+                    &self.inherited_variables,
+                    &self.shorthands,
+                    cancellation_flag,
+                )?;
+            }
+        }
+        Ok(())
+    }
+}
+
 /// State that is threaded through the execution
-struct ExecutionContext<'a, 'c, 'g, 's, 'tree> {
-    source: &'tree str,
-    graph: &'a mut Graph<'tree>,
-    config: &'a ExecutionConfig<'c, 'g>,
+struct ExecutionContext<'tree, 'a, 'g, 's, G: WithSynNodes = Graph<MyTSNode<'tree>>>
+where
+    <G as WithSynNodes>::Node: 'tree,
+{
+    graph: &'a mut G,
+    config: &'a ExecutionConfig<'a, 'g, G::LErazing>,
     locals: &'a mut dyn MutVariables<Value>,
     scoped: &'a mut ScopedVariables<'s>,
     current_regex_captures: &'a Vec<String>,
     function_parameters: &'a mut Vec<Value>,
-    mat: &'a QueryMatch<'a, 'tree>,
-    full_match_stanza_capture_index: usize,
+    mat: &'a <G::Node as SyntaxNodeExt>::QM<'tree>,
+    full_match_stanza_capture_index: <<G::Node as SyntaxNodeExt>::QM<'tree> as QMatch>::I,
     error_context: StatementContext,
     inherited_variables: &'a HashSet<Identifier>,
     shorthands: &'a AttributeShorthands,
@@ -161,13 +231,13 @@ impl<'a> ScopedVariables<'a> {
     }
 }
 
-impl Stanza {
+impl Stanza<Query> {
     fn execute<'a, 'g, 'l, 's, 'tree>(
         &self,
         source: &'tree str,
-        mat: &QueryMatch<'_, 'tree>,
-        graph: &mut Graph<'tree>,
-        config: &ExecutionConfig<'_, 'g>,
+        mat: &MyQueryMatch<'_, 'tree>,
+        graph: &mut Graph<MyTSNode<'tree>>,
+        config: &ExecutionConfig<'_, 'g, crate::graph::GraphErazing<crate::graph::TSNodeErazing>>,
         locals: &mut VariableMap<'l, Value>,
         scoped: &mut ScopedVariables<'s>,
         current_regex_captures: &Vec<String>,
@@ -186,14 +256,13 @@ impl Stanza {
                 StatementContext::new(&statement, &self, &node)
             };
             let mut exec = ExecutionContext {
-                source,
                 graph,
                 config,
                 locals,
                 scoped,
                 current_regex_captures,
                 function_parameters,
-                mat: &mat,
+                mat: mat,
                 full_match_stanza_capture_index: self.full_match_stanza_capture_index,
                 error_context,
                 inherited_variables,
@@ -206,7 +275,60 @@ impl Stanza {
         }
         Ok(())
     }
+}
+impl<Q, I: Copy> Stanza<Q, I> {
+    fn execute2<'a, 'g, 'l, 's, 'c, 'tree: 'a + 'c, G>(
+        &self,
+        mat: &Q::Match<'c, 'tree>,
+        graph: &mut G,
+        config: &ExecutionConfig<'a, 'g, G::LErazing>,
+        locals: &mut VariableMap<'l, Value>,
+        scoped: &mut ScopedVariables<'s>,
+        current_regex_captures: &Vec<String>,
+        function_parameters: &mut Vec<Value>,
+        inherited_variables: &HashSet<Identifier>,
+        shorthands: &AttributeShorthands,
+        cancellation_flag: &dyn CancellationFlag,
+    ) -> Result<(), ExecutionError>
+    where
+        Q: GenQuery<I = I>,
+        Q::Node<'tree>: SyntaxNodeExt<QM<'c> = Q::Match<'c, 'tree>>,
+        Q::Match<'c, 'tree>: QMatch<Item = Q::Node<'tree>, I = I>,
+        G: WithSynNodes<Node = Q::Node<'tree>>,
+        G::LErazing: Erzd<Original<'tree> = G>,
+    {
+        locals.clear();
+        for statement in &self.statements {
+            let error_context = {
+                let node = mat
+                    .nodes_for_capture_index(self.full_match_stanza_capture_index)
+                    .next()
+                    .expect("missing full capture");
+                StatementContext::new(&statement, &self, &node)
+            };
+            let mut exec = ExecutionContext {
+                graph,
+                config,
+                locals,
+                scoped,
+                current_regex_captures,
+                function_parameters,
+                mat: mat,
+                full_match_stanza_capture_index: self.full_match_stanza_capture_index,
+                error_context,
+                inherited_variables,
+                shorthands,
+                cancellation_flag,
+            };
+            statement
+                .execute(&mut exec)
+                .with_context(|| exec.error_context.into())?;
+        }
+        Ok(())
+    }
+}
 
+impl Stanza<Query> {
     pub(super) fn try_visit_matches_strict<'tree, E, F>(
         &self,
         tree: &'tree Tree,
@@ -214,11 +336,12 @@ impl Stanza {
         mut visit: F,
     ) -> Result<(), E>
     where
-        F: FnMut(QueryMatch<'_, 'tree>) -> Result<(), E>,
+        F: FnMut(MyQueryMatch<'_, 'tree>) -> Result<(), E>,
     {
-        let mut cursor = QueryCursor::new();
+        let mut cursor = tree_sitter::QueryCursor::new();
         let matches = cursor.matches(&self.query, tree.root_node(), source.as_bytes());
         for mat in matches {
+            let mat = MyQueryMatch { mat, source };
             visit(mat)?;
         }
         Ok(())
@@ -242,7 +365,13 @@ impl Statement {
         }
     }
 
-    fn execute(&self, exec: &mut ExecutionContext) -> Result<(), ExecutionError> {
+    fn execute<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<(), ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         exec.cancellation_flag.check("executing statement")?;
         match self {
             Statement::DeclareImmutable(statement) => statement.execute(exec),
@@ -261,35 +390,59 @@ impl Statement {
 }
 
 impl DeclareImmutable {
-    fn execute(&self, exec: &mut ExecutionContext) -> Result<(), ExecutionError> {
+    fn execute<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<(), ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         let value = self.value.evaluate(exec)?;
         self.variable.add(exec, value, false)
     }
 }
 
 impl DeclareMutable {
-    fn execute(&self, exec: &mut ExecutionContext) -> Result<(), ExecutionError> {
+    fn execute<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<(), ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         let value = self.value.evaluate(exec)?;
         self.variable.add(exec, value, true)
     }
 }
 
 impl Assign {
-    fn execute(&self, exec: &mut ExecutionContext) -> Result<(), ExecutionError> {
+    fn execute<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<(), ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         let value = self.value.evaluate(exec)?;
         self.variable.set(exec, value)
     }
 }
 
 impl CreateGraphNode {
-    fn execute(&self, exec: &mut ExecutionContext) -> Result<(), ExecutionError> {
+    fn execute<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<(), ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         let graph_node = exec.graph.add_graph_node();
         self.node
             .add_debug_attrs(&mut exec.graph[graph_node].attributes, exec.config)?;
         if let Some(match_node_attr) = &exec.config.match_node_attr {
             let match_node = exec
                 .mat
-                .nodes_for_capture_index(exec.full_match_stanza_capture_index as u32)
+                .nodes_for_capture_index(exec.full_match_stanza_capture_index)
                 .next()
                 .expect("missing capture for full match");
             let syn_node = exec.graph.add_syntax_node(match_node);
@@ -309,9 +462,15 @@ impl CreateGraphNode {
 }
 
 impl AddGraphNodeAttribute {
-    fn execute(&self, exec: &mut ExecutionContext) -> Result<(), ExecutionError> {
+    fn execute<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<(), ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         let node = self.node.evaluate(exec)?.into_graph_node_ref()?;
-        let add_attribute = |exec: &mut ExecutionContext, name: Identifier, value: Value| {
+        let add_attribute = |exec: &mut ExecutionContext<G>, name: Identifier, value: Value| {
             exec.graph[node]
                 .attributes
                 .add(name.clone(), value)
@@ -330,7 +489,13 @@ impl AddGraphNodeAttribute {
 }
 
 impl CreateEdge {
-    fn execute(&self, exec: &mut ExecutionContext) -> Result<(), ExecutionError> {
+    fn execute<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<(), ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         let source = self.source.evaluate(exec)?.into_graph_node_ref()?;
         let sink = self.sink.evaluate(exec)?.into_graph_node_ref()?;
         let edge = match exec.graph[source].add_edge(sink) {
@@ -342,10 +507,16 @@ impl CreateEdge {
 }
 
 impl AddEdgeAttribute {
-    fn execute(&self, exec: &mut ExecutionContext) -> Result<(), ExecutionError> {
+    fn execute<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<(), ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         let source = self.source.evaluate(exec)?.into_graph_node_ref()?;
         let sink = self.sink.evaluate(exec)?.into_graph_node_ref()?;
-        let add_attribute = |exec: &mut ExecutionContext, name: Identifier, value: Value| {
+        let add_attribute = |exec: &mut ExecutionContext<G>, name: Identifier, value: Value| {
             let edge = match exec.graph[source].get_edge_mut(sink) {
                 Some(edge) => Ok(edge),
                 None => Err(ExecutionError::UndefinedEdge(format!(
@@ -368,7 +539,13 @@ impl AddEdgeAttribute {
 }
 
 impl Scan {
-    fn execute(&self, exec: &mut ExecutionContext) -> Result<(), ExecutionError> {
+    fn execute<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<(), ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         let match_string = self.value.evaluate(exec)?.into_string()?;
 
         let mut i = 0;
@@ -414,7 +591,6 @@ impl Scan {
 
             let mut arm_locals = VariableMap::nested(exec.locals);
             let mut arm_exec = ExecutionContext {
-                source: exec.source,
                 graph: exec.graph,
                 config: exec.config,
                 locals: &mut arm_locals,
@@ -451,7 +627,13 @@ impl Scan {
 }
 
 impl Print {
-    fn execute(&self, exec: &mut ExecutionContext) -> Result<(), ExecutionError> {
+    fn execute<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<(), ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         for value in &self.values {
             if let Expression::StringConstant(expr) = value {
                 eprint!("{}", expr.value);
@@ -466,7 +648,13 @@ impl Print {
 }
 
 impl If {
-    fn execute(&self, exec: &mut ExecutionContext) -> Result<(), ExecutionError> {
+    fn execute<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<(), ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         for arm in &self.arms {
             let mut result = true;
             for condition in &arm.conditions {
@@ -475,7 +663,6 @@ impl If {
             if result {
                 let mut arm_locals = VariableMap::nested(exec.locals);
                 let mut arm_exec = ExecutionContext {
-                    source: exec.source,
                     graph: exec.graph,
                     config: exec.config,
                     locals: &mut arm_locals,
@@ -502,7 +689,13 @@ impl If {
 }
 
 impl Condition {
-    fn test(&self, exec: &mut ExecutionContext) -> Result<bool, ExecutionError> {
+    fn test<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<bool, ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         match self {
             Condition::Some { value, .. } => Ok(!value.evaluate(exec)?.is_null()),
             Condition::None { value, .. } => Ok(value.evaluate(exec)?.is_null()),
@@ -512,13 +705,18 @@ impl Condition {
 }
 
 impl ForIn {
-    fn execute(&self, exec: &mut ExecutionContext) -> Result<(), ExecutionError> {
+    fn execute<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<(), ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         let values = self.value.evaluate(exec)?.into_list()?;
         let mut loop_locals = VariableMap::nested(exec.locals);
         for value in values {
             loop_locals.clear();
             let mut loop_exec = ExecutionContext {
-                source: exec.source,
                 graph: exec.graph,
                 config: exec.config,
                 locals: &mut loop_locals,
@@ -544,7 +742,13 @@ impl ForIn {
 }
 
 impl Expression {
-    fn evaluate(&self, exec: &mut ExecutionContext) -> Result<Value, ExecutionError> {
+    fn evaluate<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<Value, ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         match self {
             Expression::FalseLiteral => Ok(Value::Boolean(false)),
             Expression::NullLiteral => Ok(Value::Null),
@@ -564,19 +768,31 @@ impl Expression {
 }
 
 impl IntegerConstant {
-    fn evaluate(&self, _exec: &mut ExecutionContext) -> Result<Value, ExecutionError> {
+    fn evaluate<'a, G: WithSynNodes>(
+        &self,
+        _exec: &mut ExecutionContext<G>,
+    ) -> Result<Value, ExecutionError> {
         Ok(Value::Integer(self.value))
     }
 }
 
 impl StringConstant {
-    fn evaluate(&self, _exec: &mut ExecutionContext) -> Result<Value, ExecutionError> {
+    fn evaluate<'a, G: WithSynNodes>(
+        &self,
+        _exec: &mut ExecutionContext<G>,
+    ) -> Result<Value, ExecutionError> {
         Ok(Value::String(self.value.clone()))
     }
 }
 
 impl ListLiteral {
-    fn evaluate(&self, exec: &mut ExecutionContext) -> Result<Value, ExecutionError> {
+    fn evaluate<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<Value, ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         let elements = self
             .elements
             .iter()
@@ -587,14 +803,19 @@ impl ListLiteral {
 }
 
 impl ListComprehension {
-    fn evaluate(&self, exec: &mut ExecutionContext) -> Result<Value, ExecutionError> {
+    fn evaluate<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<Value, ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         let values = self.value.evaluate(exec)?.into_list()?;
         let mut elements = Vec::new();
         let mut loop_locals = VariableMap::nested(exec.locals);
         for value in values {
             loop_locals.clear();
             let mut loop_exec = ExecutionContext {
-                source: exec.source,
                 graph: exec.graph,
                 config: exec.config,
                 locals: &mut loop_locals,
@@ -617,7 +838,13 @@ impl ListComprehension {
 }
 
 impl SetLiteral {
-    fn evaluate(&self, exec: &mut ExecutionContext) -> Result<Value, ExecutionError> {
+    fn evaluate<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<Value, ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         let elements = self
             .elements
             .iter()
@@ -628,14 +855,19 @@ impl SetLiteral {
 }
 
 impl SetComprehension {
-    fn evaluate(&self, exec: &mut ExecutionContext) -> Result<Value, ExecutionError> {
+    fn evaluate<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<Value, ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         let values = self.value.evaluate(exec)?.into_list()?;
         let mut elements = BTreeSet::new();
         let mut loop_locals = VariableMap::nested(exec.locals);
         for value in values {
             loop_locals.clear();
             let mut loop_exec = ExecutionContext {
-                source: exec.source,
                 graph: exec.graph,
                 config: exec.config,
                 locals: &mut loop_locals,
@@ -658,11 +890,17 @@ impl SetComprehension {
 }
 
 impl Capture {
-    fn evaluate(&self, exec: &mut ExecutionContext) -> Result<Value, ExecutionError> {
+    fn evaluate<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<Value, ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         Ok(Value::from_nodes(
             exec.graph,
             exec.mat
-                .nodes_for_capture_index(self.stanza_capture_index as u32),
+                .nodes_for_capture_index((self.stanza_capture_index as u32).into()),
             self.quantifier,
         )
         .into())
@@ -670,7 +908,13 @@ impl Capture {
 }
 
 impl Call {
-    fn evaluate(&self, exec: &mut ExecutionContext) -> Result<Value, ExecutionError> {
+    fn evaluate<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<Value, ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         for parameter in &self.parameters {
             let parameter = parameter.evaluate(exec)?;
             exec.function_parameters.push(parameter);
@@ -678,7 +922,6 @@ impl Call {
         exec.config.functions.call(
             &self.function,
             exec.graph,
-            exec.source,
             &mut exec
                 .function_parameters
                 .drain(exec.function_parameters.len() - self.parameters.len()..),
@@ -687,7 +930,10 @@ impl Call {
 }
 
 impl RegexCapture {
-    fn evaluate(&self, exec: &mut ExecutionContext) -> Result<Value, ExecutionError> {
+    fn evaluate<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<Value, ExecutionError> {
         let capture = exec
             .current_regex_captures
             .get(self.match_index)
@@ -697,33 +943,55 @@ impl RegexCapture {
 }
 
 impl Variable {
-    fn evaluate(&self, exec: &mut ExecutionContext) -> Result<Value, ExecutionError> {
+    fn evaluate<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+    ) -> Result<Value, ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         let value = self.get(exec)?;
         Ok(value.clone())
     }
 }
 
 impl Variable {
-    fn get<'a>(&self, exec: &'a mut ExecutionContext) -> Result<&'a Value, ExecutionError> {
+    fn get<'a, 'b, G: WithSynNodes>(
+        &self,
+        exec: &'a mut ExecutionContext<G>,
+    ) -> Result<&'a Value, ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'b> = G>,
+    {
         match self {
             Variable::Scoped(variable) => variable.get(exec),
             Variable::Unscoped(variable) => variable.get(exec),
         }
     }
 
-    fn add(
+    fn add<'a, G: WithSynNodes>(
         &self,
-        exec: &mut ExecutionContext,
+        exec: &mut ExecutionContext<G>,
         value: Value,
         mutable: bool,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         match self {
             Variable::Scoped(variable) => variable.add(exec, value, mutable),
             Variable::Unscoped(variable) => variable.add(exec, value, mutable),
         }
     }
 
-    fn set(&self, exec: &mut ExecutionContext, value: Value) -> Result<(), ExecutionError> {
+    fn set<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+        value: Value,
+    ) -> Result<(), ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         match self {
             Variable::Scoped(variable) => variable.set(exec, value),
             Variable::Unscoped(variable) => variable.set(exec, value),
@@ -732,7 +1000,14 @@ impl Variable {
 }
 
 impl ScopedVariable {
-    fn get<'a>(&self, exec: &'a mut ExecutionContext) -> Result<&'a Value, ExecutionError> {
+    fn get<'a, 'b, G: WithSynNodes>(
+        &self,
+        exec: &'a mut ExecutionContext<G>,
+    ) -> Result<&'a Value, ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'b> = G>,
+        G::Node: SyntaxNode,
+    {
         let scope = self.scope.evaluate(exec)?;
         let scope = match scope {
             Value::SyntaxNode(scope) => scope,
@@ -755,11 +1030,7 @@ impl ScopedVariable {
 
         // search parent nodes
         if exec.inherited_variables.contains(&self.name) {
-            let mut parent = exec
-                .graph
-                .syntax_nodes
-                .get(&scope.index)
-                .and_then(|n| n.parent());
+            let mut parent = exec.graph.node(scope).and_then(|n| n.parent());
             while let Some(scope) = parent {
                 if let Some(value) = exec
                     .scoped
@@ -778,12 +1049,15 @@ impl ScopedVariable {
         )))
     }
 
-    fn add(
+    fn add<'a, G: WithSynNodes>(
         &self,
-        exec: &mut ExecutionContext,
+        exec: &mut ExecutionContext<G>,
         value: Value,
         mutable: bool,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         let scope = self.scope.evaluate(exec)?;
         let scope = match scope {
             Value::SyntaxNode(scope) => scope,
@@ -800,7 +1074,14 @@ impl ScopedVariable {
             .map_err(|_| ExecutionError::DuplicateVariable(format!("{}", self)))
     }
 
-    fn set(&self, exec: &mut ExecutionContext, value: Value) -> Result<(), ExecutionError> {
+    fn set<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+        value: Value,
+    ) -> Result<(), ExecutionError>
+    where
+        G::LErazing: Erzd<Original<'a> = G>,
+    {
         let scope = self.scope.evaluate(exec)?;
         let scope = match scope {
             Value::SyntaxNode(scope) => scope,
@@ -819,7 +1100,10 @@ impl ScopedVariable {
 }
 
 impl UnscopedVariable {
-    fn get<'a>(&self, exec: &'a mut ExecutionContext) -> Result<&'a Value, ExecutionError> {
+    fn get<'a, G: WithSynNodes>(
+        &self,
+        exec: &'a mut ExecutionContext<G>,
+    ) -> Result<&'a Value, ExecutionError> {
         if let Some(value) = exec.config.globals.get(&self.name) {
             Some(value)
         } else {
@@ -828,9 +1112,9 @@ impl UnscopedVariable {
         .ok_or_else(|| ExecutionError::UndefinedVariable(format!("{}", self)))
     }
 
-    fn add(
+    fn add<'a, G: WithSynNodes>(
         &self,
-        exec: &mut ExecutionContext,
+        exec: &mut ExecutionContext<G>,
         value: Value,
         mutable: bool,
     ) -> Result<(), ExecutionError> {
@@ -845,7 +1129,11 @@ impl UnscopedVariable {
             .map_err(|_| ExecutionError::DuplicateVariable(format!(" local {}", self)))
     }
 
-    fn set(&self, exec: &mut ExecutionContext, value: Value) -> Result<(), ExecutionError> {
+    fn set<'a, G: WithSynNodes>(
+        &self,
+        exec: &mut ExecutionContext<G>,
+        value: Value,
+    ) -> Result<(), ExecutionError> {
         if exec.config.globals.get(&self.name).is_some() {
             return Err(ExecutionError::CannotAssignImmutableVariable(format!(
                 " global {}",
@@ -863,13 +1151,14 @@ impl UnscopedVariable {
 }
 
 impl Attribute {
-    fn execute<F>(
+    fn execute<'a, F, G: WithSynNodes>(
         &self,
-        exec: &mut ExecutionContext,
+        exec: &mut ExecutionContext<G>,
         add_attribute: &F,
     ) -> Result<(), ExecutionError>
     where
-        F: Fn(&mut ExecutionContext, Identifier, Value) -> Result<(), ExecutionError>,
+        F: Fn(&mut ExecutionContext<G>, Identifier, Value) -> Result<(), ExecutionError>,
+        G::LErazing: Erzd<Original<'a> = G>,
     {
         exec.cancellation_flag.check("executing attribute")?;
         let value = self.value.evaluate(exec)?;
@@ -882,18 +1171,18 @@ impl Attribute {
 }
 
 impl AttributeShorthand {
-    fn execute<F>(
+    fn execute<'a, F, G: WithSynNodes>(
         &self,
-        exec: &mut ExecutionContext,
+        exec: &mut ExecutionContext<G>,
         add_attribute: &F,
         value: Value,
     ) -> Result<(), ExecutionError>
     where
-        F: Fn(&mut ExecutionContext, Identifier, Value) -> Result<(), ExecutionError>,
+        F: Fn(&mut ExecutionContext<G>, Identifier, Value) -> Result<(), ExecutionError>,
+        G::LErazing: Erzd<Original<'a> = G>,
     {
         let mut shorthand_locals = VariableMap::new();
         let mut shorthand_exec = ExecutionContext {
-            source: exec.source,
             graph: exec.graph,
             config: exec.config,
             locals: &mut shorthand_locals,

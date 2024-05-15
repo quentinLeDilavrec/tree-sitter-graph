@@ -14,6 +14,7 @@ use std::fmt;
 
 use crate::execution::error::ExecutionError;
 use crate::execution::error::ResultWithExecutionError;
+use crate::graph::Erzd;
 use crate::graph::GraphNodeRef;
 use crate::graph::SyntaxNodeRef;
 use crate::graph::Value;
@@ -118,7 +119,13 @@ impl From<LazyCall> for LazyValue {
 }
 
 impl LazyValue {
-    pub(super) fn evaluate(&self, exec: &mut EvaluationContext) -> Result<Value, ExecutionError> {
+    pub(super) fn evaluate<'a, G: Erzd>(
+        &self,
+        exec: &mut EvaluationContext<'_, 'a, G>,
+    ) -> Result<Value, ExecutionError>
+    where
+        G::Original<'a>: crate::graph::WithSynNodes,
+    {
         exec.cancellation_flag.check("evaluating value")?;
         trace!("eval {} {{", self);
         let ret = match self {
@@ -133,10 +140,13 @@ impl LazyValue {
         Ok(ret)
     }
 
-    pub(super) fn evaluate_as_graph_node(
+    pub(super) fn evaluate_as_graph_node<'a, G: Erzd>(
         &self,
-        exec: &mut EvaluationContext,
-    ) -> Result<GraphNodeRef, ExecutionError> {
+        exec: &mut EvaluationContext<'_, 'a, G>,
+    ) -> Result<GraphNodeRef, ExecutionError>
+    where
+        G::Original<'a>: crate::graph::WithSynNodes,
+    {
         let node = self.evaluate(exec)?;
         match node {
             Value::GraphNode(node) => Ok(node),
@@ -144,10 +154,13 @@ impl LazyValue {
         }
     }
 
-    pub(super) fn evaluate_as_syntax_node(
+    pub(super) fn evaluate_as_syntax_node<'a, G: Erzd>(
         &self,
-        exec: &mut EvaluationContext,
-    ) -> Result<SyntaxNodeRef, ExecutionError> {
+        exec: &mut EvaluationContext<'_, 'a, G>,
+    ) -> Result<SyntaxNodeRef, ExecutionError>
+    where
+        G::Original<'a>: crate::graph::WithSynNodes,
+    {
         let node = self.evaluate(exec)?;
         match node {
             Value::SyntaxNode(node) => Ok(node),
@@ -184,7 +197,13 @@ impl LazyScopedVariable {
         }
     }
 
-    fn resolve<'a>(&self, exec: &'a mut EvaluationContext) -> Result<LazyValue, ExecutionError> {
+    fn resolve<'a, 'b, G: Erzd>(
+        &self,
+        exec: &mut EvaluationContext<'a, 'b, G>,
+    ) -> Result<LazyValue, ExecutionError>
+    where
+        G::Original<'b>: crate::graph::WithSynNodes,
+    {
         let scope = self
             .scope
             .as_ref()
@@ -194,7 +213,13 @@ impl LazyScopedVariable {
         scoped_store.evaluate(&scope, &self.name, exec)
     }
 
-    pub(super) fn evaluate(&self, exec: &mut EvaluationContext) -> Result<Value, ExecutionError> {
+    pub(super) fn evaluate<'a, G: Erzd>(
+        &self,
+        exec: &mut EvaluationContext<'_, 'a, G>,
+    ) -> Result<Value, ExecutionError>
+    where
+        G::Original<'a>: crate::graph::WithSynNodes,
+    {
         let value = self.resolve(exec)?;
         value.evaluate(exec)
     }
@@ -217,7 +242,13 @@ impl LazyList {
         Self { elements }
     }
 
-    pub(super) fn evaluate(&self, exec: &mut EvaluationContext) -> Result<Value, ExecutionError> {
+    pub(super) fn evaluate<'a, G: Erzd>(
+        &self,
+        exec: &mut EvaluationContext<'_, 'a, G>,
+    ) -> Result<Value, ExecutionError>
+    where
+        G::Original<'a>: crate::graph::WithSynNodes,
+    {
         let elements = self
             .elements
             .iter()
@@ -254,7 +285,13 @@ impl LazySet {
         Self { elements }
     }
 
-    pub(super) fn evaluate(&self, exec: &mut EvaluationContext) -> Result<Value, ExecutionError> {
+    pub(super) fn evaluate<'a, G: Erzd>(
+        &self,
+        exec: &mut EvaluationContext<'_, 'a, G>,
+    ) -> Result<Value, ExecutionError>
+    where
+        G::Original<'a>: crate::graph::WithSynNodes,
+    {
         let elements = self
             .elements
             .iter()
@@ -295,7 +332,13 @@ impl LazyCall {
         }
     }
 
-    pub(super) fn evaluate(&self, exec: &mut EvaluationContext) -> Result<Value, ExecutionError> {
+    pub(super) fn evaluate<'a, G: Erzd>(
+        &self,
+        exec: &mut EvaluationContext<'_, 'a, G>,
+    ) -> Result<Value, ExecutionError>
+    where
+        G::Original<'a>: crate::graph::WithSynNodes,
+    {
         for argument in &self.arguments {
             let argument = argument.evaluate(exec)?;
             exec.function_parameters.push(argument);
@@ -304,7 +347,6 @@ impl LazyCall {
         exec.functions.call(
             &self.function,
             exec.graph,
-            exec.source,
             &mut exec
                 .function_parameters
                 .drain(exec.function_parameters.len() - self.arguments.len()..),

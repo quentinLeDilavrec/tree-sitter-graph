@@ -23,6 +23,7 @@ use crate::variables::MutVariables;
 use crate::variables::VariableError;
 use crate::variables::VariableMap;
 use crate::variables::Variables;
+use crate::GenQuery;
 use crate::Identifier;
 use crate::Location;
 
@@ -104,11 +105,11 @@ impl std::fmt::Display for DisplayCheckErrorPretty<'_> {
 }
 
 /// Checker context
-struct CheckContext<'a> {
+struct CheckContext<'a, Q = Query> {
     globals: &'a dyn Variables<VariableResult>,
-    file_query: &'a Query,
+    file_query: &'a Q,
     stanza_index: usize,
-    stanza_query: &'a Query,
+    stanza_query: &'a Q,
     locals: &'a mut dyn MutVariables<VariableResult>,
 }
 
@@ -121,7 +122,7 @@ struct VariableResult {
 //-----------------------------------------------------------------------------
 // File
 
-impl ast::File {
+impl ast::File<Query> {
     pub fn check(&mut self) -> Result<(), CheckError> {
         let mut globals = VariableMap::new();
         for global in &self.globals {
@@ -149,10 +150,38 @@ impl ast::File {
     }
 }
 
+impl<Q: GenQuery> ast::File<Q> {
+    pub fn check2(&mut self) -> Result<(), CheckError> {
+        let mut globals = VariableMap::new();
+        for global in &self.globals {
+            globals
+                .add(
+                    global.name.clone(),
+                    VariableResult {
+                        quantifier: global.quantifier,
+                        is_local: true,
+                    },
+                    false,
+                )
+                .map_err(|_| {
+                    CheckError::DuplicateGlobalVariable(
+                        global.name.as_str().to_string(),
+                        global.location,
+                    )
+                })?;
+        }
+        let file_query = self.query.as_ref().unwrap();
+        for (index, stanza) in self.stanzas.iter_mut().enumerate() {
+            stanza.check2(&globals, file_query, index)?;
+        }
+        Ok(())
+    }
+}
+
 //-----------------------------------------------------------------------------
 // Stanza
 
-impl ast::Stanza {
+impl ast::Stanza<Query> {
     fn check(
         &mut self,
         globals: &dyn Variables<VariableResult>,
@@ -167,10 +196,10 @@ impl ast::Stanza {
             stanza_query: &self.query,
             locals: &mut locals,
         };
-        self.full_match_file_capture_index =
-            ctx.file_query
-                .capture_index_for_name(FULL_MATCH)
-                .expect("missing capture index for full match") as usize;
+        self.full_match_file_capture_index = ctx
+            .file_query
+            .capture_index_for_name(FULL_MATCH)
+            .expect("missing capture index for full match");
 
         let mut used_captures = HashSet::new();
         for statement in &mut self.statements {
@@ -206,6 +235,60 @@ impl ast::Stanza {
     }
 }
 
+impl<Q: GenQuery> ast::Stanza<Q> {
+    fn check2(
+        &mut self,
+        globals: &dyn Variables<VariableResult>,
+        file_query: &Q,
+        stanza_index: usize,
+    ) -> Result<(), CheckError> {
+        let mut locals = VariableMap::new();
+        let mut ctx = CheckContext {
+            globals,
+            file_query,
+            stanza_index,
+            stanza_query: &self.query,
+            locals: &mut locals,
+        };
+        self.full_match_file_capture_index = ctx
+            .file_query
+            .capture_index_for_name(FULL_MATCH)
+            .expect("missing capture index for full match");
+
+        // let mut used_captures = HashSet::new();
+        for statement in &mut self.statements {
+            let stmt_result = statement.check(&mut ctx)?;
+            // used_captures.extend(stmt_result.used_captures);
+        }
+
+        // let all_captures = self
+        //     .query
+        //     .capture_names()
+        //     .into_iter()
+        //     .filter(|cn| {
+        //         self.query
+        //             .capture_index_for_name(cn)
+        //             .expect("capture should have index")
+        //             != self.full_match_stanza_capture_index as u32
+        //     })
+        //     .map(|cn| Identifier::from(*cn))
+        //     .collect::<HashSet<_>>();
+        // let unused_captures = all_captures
+        //     .difference(&used_captures)
+        //     .filter(|i| !i.starts_with("_"))
+        //     .map(|i| format!("@{}", i))
+        //     .collect::<Vec<_>>();
+        // if !unused_captures.is_empty() {
+        //     return Err(CheckError::UnusedCaptures(
+        //         unused_captures.join(" "),
+        //         self.range.start,
+        //     ));
+        // }
+
+        Ok(())
+    }
+}
+
 //-----------------------------------------------------------------------------
 // Statements
 
@@ -215,7 +298,7 @@ struct StatementResult {
 }
 
 impl ast::Statement {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<StatementResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<StatementResult, CheckError> {
         match self {
             Self::DeclareImmutable(stmt) => stmt.check(ctx),
             Self::DeclareMutable(stmt) => stmt.check(ctx),
@@ -233,7 +316,7 @@ impl ast::Statement {
 }
 
 impl ast::DeclareImmutable {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<StatementResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<StatementResult, CheckError> {
         let mut used_captures = HashSet::new();
         let value = self.value.check(ctx)?;
         used_captures.extend(value.used_captures.iter().cloned());
@@ -244,7 +327,7 @@ impl ast::DeclareImmutable {
 }
 
 impl ast::DeclareMutable {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<StatementResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<StatementResult, CheckError> {
         let mut used_captures = HashSet::new();
         let value = self.value.check(ctx)?;
         used_captures.extend(value.used_captures.iter().cloned());
@@ -255,7 +338,7 @@ impl ast::DeclareMutable {
 }
 
 impl ast::Assign {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<StatementResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<StatementResult, CheckError> {
         let mut used_captures = HashSet::new();
         let value = self.value.check(ctx)?;
         used_captures.extend(value.used_captures.iter().cloned());
@@ -266,7 +349,7 @@ impl ast::Assign {
 }
 
 impl ast::CreateGraphNode {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<StatementResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<StatementResult, CheckError> {
         let node_result = self.node.check_add(
             ctx,
             VariableResult {
@@ -282,7 +365,7 @@ impl ast::CreateGraphNode {
 }
 
 impl ast::AddGraphNodeAttribute {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<StatementResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<StatementResult, CheckError> {
         let mut used_captures = HashSet::new();
         let node_result = self.node.check(ctx)?;
         used_captures.extend(node_result.used_captures);
@@ -295,7 +378,7 @@ impl ast::AddGraphNodeAttribute {
 }
 
 impl ast::CreateEdge {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<StatementResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<StatementResult, CheckError> {
         let mut used_captures = HashSet::new();
         let source_result = self.source.check(ctx)?;
         used_captures.extend(source_result.used_captures);
@@ -306,7 +389,7 @@ impl ast::CreateEdge {
 }
 
 impl ast::AddEdgeAttribute {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<StatementResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<StatementResult, CheckError> {
         let mut used_captures = HashSet::new();
         let source_result = self.source.check(ctx)?;
         used_captures.extend(source_result.used_captures);
@@ -321,7 +404,7 @@ impl ast::AddEdgeAttribute {
 }
 
 impl ast::Scan {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<StatementResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<StatementResult, CheckError> {
         let mut used_captures = HashSet::new();
 
         let value_result = self.value.check(ctx)?;
@@ -362,7 +445,7 @@ impl ast::Scan {
 }
 
 impl ast::Print {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<StatementResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<StatementResult, CheckError> {
         let mut used_captures = HashSet::new();
         for value in &mut self.values {
             let value_result = value.check(ctx)?;
@@ -373,7 +456,7 @@ impl ast::Print {
 }
 
 impl ast::If {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<StatementResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<StatementResult, CheckError> {
         let mut used_captures = HashSet::new();
 
         for arm in &mut self.arms {
@@ -401,7 +484,7 @@ impl ast::If {
 }
 
 impl ast::Condition {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<StatementResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<StatementResult, CheckError> {
         let mut used_captures = HashSet::new();
         match self {
             Self::None { value, location } | Self::Some { value, location } => {
@@ -427,7 +510,7 @@ impl ast::Condition {
 }
 
 impl ast::ForIn {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<StatementResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<StatementResult, CheckError> {
         let mut used_captures = HashSet::new();
 
         let value_result = self.value.check(ctx)?;
@@ -473,7 +556,7 @@ struct ExpressionResult {
 }
 
 impl ast::Expression {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<ExpressionResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<ExpressionResult, CheckError> {
         match self {
             Self::FalseLiteral => Ok(ExpressionResult {
                 is_local: true,
@@ -505,7 +588,7 @@ impl ast::Expression {
 }
 
 impl ast::IntegerConstant {
-    fn check(&mut self, _ctx: &mut CheckContext) -> Result<ExpressionResult, CheckError> {
+    fn check<Q>(&mut self, _ctx: &mut CheckContext<Q>) -> Result<ExpressionResult, CheckError> {
         Ok(ExpressionResult {
             is_local: true,
             quantifier: One,
@@ -515,7 +598,7 @@ impl ast::IntegerConstant {
 }
 
 impl ast::StringConstant {
-    fn check(&mut self, _ctx: &mut CheckContext) -> Result<ExpressionResult, CheckError> {
+    fn check<Q>(&mut self, _ctx: &mut CheckContext<Q>) -> Result<ExpressionResult, CheckError> {
         Ok(ExpressionResult {
             is_local: true,
             quantifier: One,
@@ -525,7 +608,7 @@ impl ast::StringConstant {
 }
 
 impl ast::ListLiteral {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<ExpressionResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<ExpressionResult, CheckError> {
         let mut is_local = true;
         let mut used_captures = HashSet::new();
         for element in &mut self.elements {
@@ -542,7 +625,7 @@ impl ast::ListLiteral {
 }
 
 impl ast::SetLiteral {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<ExpressionResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<ExpressionResult, CheckError> {
         let mut is_local = true;
         let mut used_captures = HashSet::new();
         for element in &mut self.elements {
@@ -559,7 +642,7 @@ impl ast::SetLiteral {
 }
 
 impl ast::ListComprehension {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<ExpressionResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<ExpressionResult, CheckError> {
         let mut used_captures = HashSet::new();
 
         let value_result = self.value.check(ctx)?;
@@ -596,7 +679,7 @@ impl ast::ListComprehension {
 }
 
 impl ast::SetComprehension {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<ExpressionResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<ExpressionResult, CheckError> {
         let mut used_captures = HashSet::new();
 
         let value_result = self.value.check(ctx)?;
@@ -633,7 +716,7 @@ impl ast::SetComprehension {
 }
 
 impl ast::Capture {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<ExpressionResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<ExpressionResult, CheckError> {
         let name = self.name.to_string();
         self.stanza_capture_index = ctx
             .stanza_query
@@ -655,7 +738,7 @@ impl ast::Capture {
 }
 
 impl ast::Call {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<ExpressionResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<ExpressionResult, CheckError> {
         let mut is_local = true;
         let mut used_captures = HashSet::new();
         for parameter in &mut self.parameters {
@@ -672,7 +755,7 @@ impl ast::Call {
 }
 
 impl ast::RegexCapture {
-    fn check(&mut self, _ctx: &mut CheckContext) -> Result<ExpressionResult, CheckError> {
+    fn check<Q>(&mut self, _ctx: &mut CheckContext<Q>) -> Result<ExpressionResult, CheckError> {
         Ok(ExpressionResult {
             is_local: true,
             quantifier: One,
@@ -685,9 +768,9 @@ impl ast::RegexCapture {
 // Variables
 
 impl ast::Variable {
-    fn check_add(
+    fn check_add<Q: GenQuery>(
         &mut self,
-        ctx: &mut CheckContext,
+        ctx: &mut CheckContext<Q>,
         value: VariableResult,
         mutable: bool,
     ) -> Result<StatementResult, CheckError> {
@@ -697,9 +780,9 @@ impl ast::Variable {
         }
     }
 
-    fn check_set(
+    fn check_set<Q: GenQuery>(
         &mut self,
-        ctx: &mut CheckContext,
+        ctx: &mut CheckContext<Q>,
         value: VariableResult,
     ) -> Result<StatementResult, CheckError> {
         match self {
@@ -708,7 +791,7 @@ impl ast::Variable {
         }
     }
 
-    fn check_get(&mut self, ctx: &mut CheckContext) -> Result<ExpressionResult, CheckError> {
+    fn check_get<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<ExpressionResult, CheckError> {
         match self {
             Self::Unscoped(v) => v.check_get(ctx),
             Self::Scoped(v) => v.check_get(ctx),
@@ -717,9 +800,9 @@ impl ast::Variable {
 }
 
 impl ast::UnscopedVariable {
-    fn check_add(
+    fn check_add<Q: GenQuery>(
         &mut self,
-        ctx: &mut CheckContext,
+        ctx: &mut CheckContext<Q>,
         value: VariableResult,
         mutable: bool,
     ) -> Result<StatementResult, CheckError> {
@@ -745,9 +828,9 @@ impl ast::UnscopedVariable {
         })
     }
 
-    fn check_set(
+    fn check_set<Q: GenQuery>(
         &mut self,
-        ctx: &mut CheckContext,
+        ctx: &mut CheckContext<Q>,
         value: VariableResult,
     ) -> Result<StatementResult, CheckError> {
         if ctx.globals.get(&self.name).is_some() {
@@ -770,7 +853,7 @@ impl ast::UnscopedVariable {
         })
     }
 
-    fn check_get(&mut self, ctx: &mut CheckContext) -> Result<ExpressionResult, CheckError> {
+    fn check_get<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<ExpressionResult, CheckError> {
         if let Some(result) = ctx.globals.get(&self.name) {
             Some(result)
         } else {
@@ -782,9 +865,9 @@ impl ast::UnscopedVariable {
 }
 
 impl ast::ScopedVariable {
-    fn check_add(
+    fn check_add<Q: GenQuery>(
         &mut self,
-        ctx: &mut CheckContext,
+        ctx: &mut CheckContext<Q>,
         _value: VariableResult,
         _mutable: bool,
     ) -> Result<StatementResult, CheckError> {
@@ -792,16 +875,16 @@ impl ast::ScopedVariable {
         Ok(scope_result.into())
     }
 
-    fn check_set(
+    fn check_set<Q: GenQuery>(
         &mut self,
-        ctx: &mut CheckContext,
+        ctx: &mut CheckContext<Q>,
         _value: VariableResult,
     ) -> Result<StatementResult, CheckError> {
         let scope_result = self.scope.check(ctx)?;
         Ok(scope_result.into())
     }
 
-    fn check_get(&mut self, ctx: &mut CheckContext) -> Result<ExpressionResult, CheckError> {
+    fn check_get<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<ExpressionResult, CheckError> {
         let scope_result = self.scope.check(ctx)?;
         Ok(ExpressionResult {
             is_local: false,
@@ -820,7 +903,7 @@ struct AttributeResult {
 }
 
 impl ast::Attribute {
-    fn check(&mut self, ctx: &mut CheckContext) -> Result<AttributeResult, CheckError> {
+    fn check<Q: GenQuery>(&mut self, ctx: &mut CheckContext<Q>) -> Result<AttributeResult, CheckError> {
         let value_result = self.value.check(ctx)?;
         Ok(AttributeResult {
             used_captures: value_result.used_captures,

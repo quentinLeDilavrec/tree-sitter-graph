@@ -12,6 +12,7 @@ use crate::ast::Stanza;
 use crate::ast::Statement;
 use crate::execution::CancellationError;
 use crate::parse_error::Excerpt;
+use crate::GenQuery;
 use crate::Location;
 
 /// An error that can occur while executing a graph DSL file
@@ -91,12 +92,14 @@ pub struct StatementContext {
 }
 
 impl StatementContext {
-    pub(crate) fn new(stmt: &Statement, stanza: &Stanza, source_node: &tree_sitter::Node) -> Self {
+    pub(crate) fn new<Q:GenQuery, I>(stmt: &Statement, stanza: &Stanza<Q, I>, source_node: &Q::Node<'_>) -> Self {
+        use crate::graph::SyntaxNode;
         Self {
             statement: format!("{}", stmt),
             statement_location: stmt.location(),
             stanza_location: stanza.range.start,
-            source_location: Location::from(source_node.range().start_point),
+            // source_location: Location::from(source_node.start_position()), // TODO make a better location for hyperast
+            source_location: Location{ row: 0, column: 0 },
             node_kind: source_node.kind().to_string(),
         }
     }

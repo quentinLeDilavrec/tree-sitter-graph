@@ -11,7 +11,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::execution::error::ExecutionError;
-use crate::graph::Graph;
+use crate::graph::Erzd;
+use crate::graph::SyntaxNodeRef;
 use crate::graph::Value;
 use crate::Identifier;
 
@@ -23,11 +24,10 @@ use crate::Identifier;
 /// Any other data that you need must be passed in as a parameter to the function.  You can use the
 /// [`Parameters`][] trait to consume those parameters and verify that you received the correct
 /// number and type of them.
-pub trait Function {
+pub trait Function<G: Erzd> {
     fn call(
         &self,
-        graph: &mut Graph,
-        source: &str,
+        graph: &mut G::Original<'_>,
         parameters: &mut dyn Parameters,
     ) -> Result<Value, ExecutionError>;
 }
@@ -84,44 +84,31 @@ where
 }
 
 /// A library of named functions.
-#[derive(Default)]
-pub struct Functions {
-    functions: HashMap<Identifier, Arc<dyn Function + Send + Sync>>,
+pub struct Functions<G> {
+    functions: HashMap<Identifier, Arc<dyn Function<G> + Send + Sync>>,
 }
 
-impl Functions {
+impl<G> Default for Functions<G> {
+    fn default() -> Self {
+        Self {
+            functions: Default::default(),
+        }
+    }
+}
+
+impl<G: Erzd> Functions<G> {
     /// Creates a new, empty library of functions.
-    pub fn new() -> Functions {
+    pub fn new() -> Self {
         Functions::default()
     }
 
     /// Returns the standard library of functions, as defined in the [language
     /// reference][`crate::reference::functions`].
-    pub fn stdlib() -> Functions {
+    pub fn essentials() -> Self {
         let mut functions = Functions::new();
         // general functions
         functions.add(Identifier::from("eq"), stdlib::Eq);
         functions.add(Identifier::from("is-null"), stdlib::IsNull);
-        // tree functions
-        functions.add(
-            Identifier::from("named-child-index"),
-            stdlib::syntax::NamedChildIndex,
-        );
-        functions.add(Identifier::from("source-text"), stdlib::syntax::SourceText);
-        functions.add(Identifier::from("start-row"), stdlib::syntax::StartRow);
-        functions.add(
-            Identifier::from("start-column"),
-            stdlib::syntax::StartColumn,
-        );
-        functions.add(Identifier::from("end-row"), stdlib::syntax::EndRow);
-        functions.add(Identifier::from("end-column"), stdlib::syntax::EndColumn);
-        functions.add(Identifier::from("node-type"), stdlib::syntax::NodeType);
-        functions.add(
-            Identifier::from("named-child-count"),
-            stdlib::syntax::NamedChildCount,
-        );
-        // graph functions
-        functions.add(Identifier::from("node"), stdlib::graph::Node);
         // boolean functions
         functions.add(Identifier::from("not"), stdlib::bool::Not);
         functions.add(Identifier::from("and"), stdlib::bool::And);
@@ -142,7 +129,7 @@ impl Functions {
     /// Adds a new function to this library.
     pub fn add<F>(&mut self, name: Identifier, function: F)
     where
-        F: Function + Send + Sync + 'static,
+        F: Function<G> + Send + Sync + 'static,
     {
         self.functions.insert(name, Arc::new(function));
     }
@@ -151,15 +138,52 @@ impl Functions {
     pub fn call(
         &self,
         name: &Identifier,
-        graph: &mut Graph,
-        source: &str,
+        graph: &mut G::Original<'_>,
         parameters: &mut dyn Parameters,
     ) -> Result<Value, ExecutionError> {
         let function = self
             .functions
             .get(name)
             .ok_or(ExecutionError::UndefinedFunction(format!("{}", name)))?;
-        function.call(graph, source, parameters)
+        function.call(graph, parameters)
+    }
+}
+
+impl<G: Erzd> Functions<G>
+where
+    for<'a> G::Original<'a>: std::ops::Index<SyntaxNodeRef> + crate::graph::WithSynNodes,
+    for<'a> <G::Original<'a> as std::ops::Index<SyntaxNodeRef>>::Output:
+        crate::graph::SyntaxNodeExt + Sized + std::cmp::PartialEq + Clone,
+{
+    /// Returns the standard library of functions, as defined in the [language
+    /// reference][`crate::reference::functions`].
+    pub fn stdlib() -> Self {
+        let mut functions = Self::essentials();
+        functions.add_graph_functions();
+        functions
+    }
+
+    pub fn add_graph_functions(&mut self) {
+        // tree functions
+        self.add(
+            Identifier::from("named-child-index"),
+            stdlib::syntax::NamedChildIndex,
+        );
+        self.add(Identifier::from("source-text"), stdlib::syntax::SourceText);
+        self.add(Identifier::from("start-row"), stdlib::syntax::StartRow);
+        self.add(
+            Identifier::from("start-column"),
+            stdlib::syntax::StartColumn,
+        );
+        self.add(Identifier::from("end-row"), stdlib::syntax::EndRow);
+        self.add(Identifier::from("end-column"), stdlib::syntax::EndColumn);
+        self.add(Identifier::from("node-type"), stdlib::syntax::NodeType);
+        self.add(
+            Identifier::from("named-child-count"),
+            stdlib::syntax::NamedChildCount,
+        );
+        // graph functions
+        self.add(Identifier::from("node"), stdlib::graph::Node);
     }
 }
 
@@ -168,7 +192,9 @@ pub mod stdlib {
     use regex::Regex;
 
     use crate::execution::error::ExecutionError;
-    use crate::graph::Graph;
+    use crate::graph::Erzd;
+    use crate::graph::SyntaxNode;
+    use crate::graph::SyntaxNodeRef;
     use crate::graph::Value;
 
     use super::Function;
@@ -177,11 +203,10 @@ pub mod stdlib {
     /// The implementation of the standard [`eq`][`crate::reference::functions#eq`] function.
     pub struct Eq;
 
-    impl Function for Eq {
+    impl<G: Erzd> Function<G> for Eq {
         fn call(
             &self,
-            _graph: &mut Graph,
-            _source: &str,
+            _graph: &mut G::Original<'_>,
             parameters: &mut dyn Parameters,
         ) -> Result<Value, ExecutionError> {
             let left = parameters.param()?;
@@ -242,11 +267,10 @@ pub mod stdlib {
     /// The implementation of the standard [`is-null`][`crate::reference::functions#is-null`] function.
     pub struct IsNull;
 
-    impl Function for IsNull {
+    impl<G: Erzd> Function<G> for IsNull {
         fn call(
             &self,
-            _graph: &mut Graph,
-            _source: &str,
+            _graph: &mut G::Original<'_>,
             parameters: &mut dyn Parameters,
         ) -> Result<Value, ExecutionError> {
             let parameter = parameters.param()?;
@@ -261,20 +285,27 @@ pub mod stdlib {
     }
 
     pub mod syntax {
+        use crate::graph::SyntaxNodeExt;
+
         use super::*;
 
         /// The implementation of the standard [`named-child-index`][`crate::reference::functions#named-child-index`]
         /// function.
         pub struct NamedChildIndex;
 
-        impl Function for NamedChildIndex {
+        impl<G: Erzd> Function<G> for NamedChildIndex
+        where
+            for<'a> G::Original<'a>: std::ops::Index<SyntaxNodeRef>,
+            for<'a> <G::Original<'a> as std::ops::Index<SyntaxNodeRef>>::Output:
+                SyntaxNodeExt + Sized + std::cmp::PartialEq + Clone,
+        {
             fn call(
                 &self,
-                graph: &mut Graph,
-                _source: &str,
+                graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
-                let node = graph[parameters.param()?.into_syntax_node_ref()?];
+                let node = &graph[parameters.param()?.into_syntax_node_ref()?];
+                let node = node.clone();
                 parameters.finish()?;
                 let parent = match node.parent() {
                     Some(parent) => parent,
@@ -301,16 +332,20 @@ pub mod stdlib {
         /// function.
         pub struct SourceText;
 
-        impl Function for SourceText {
+        impl<G: Erzd> Function<G> for SourceText
+        where
+            for<'a> G::Original<'a>: std::ops::Index<SyntaxNodeRef>,
+            for<'a> <G::Original<'a> as std::ops::Index<SyntaxNodeRef>>::Output:
+                SyntaxNode + Sized + Clone,
+        {
             fn call(
                 &self,
-                graph: &mut Graph,
-                source: &str,
+                graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
-                let node = graph[parameters.param()?.into_syntax_node_ref()?];
+                let node = &graph[parameters.param()?.into_syntax_node_ref()?];
                 parameters.finish()?;
-                Ok(Value::String(source[node.byte_range()].to_string()))
+                Ok(Value::String(node.text()))
             }
         }
 
@@ -318,14 +353,18 @@ pub mod stdlib {
         // function.
         pub struct StartRow;
 
-        impl Function for StartRow {
+        impl<G: Erzd> Function<G> for StartRow
+        where
+            for<'a> G::Original<'a>: std::ops::Index<SyntaxNodeRef>,
+            for<'a> <G::Original<'a> as std::ops::Index<SyntaxNodeRef>>::Output:
+                SyntaxNode + Sized + Clone,
+        {
             fn call(
                 &self,
-                graph: &mut Graph,
-                _source: &str,
+                graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
-                let node = graph[parameters.param()?.into_syntax_node_ref()?];
+                let node = &graph[parameters.param()?.into_syntax_node_ref()?];
                 parameters.finish()?;
                 Ok(Value::Integer(node.start_position().row as u32))
             }
@@ -336,14 +375,18 @@ pub mod stdlib {
         // function.
         pub struct StartColumn;
 
-        impl Function for StartColumn {
+        impl<G: Erzd> Function<G> for StartColumn
+        where
+            for<'a> G::Original<'a>: std::ops::Index<SyntaxNodeRef>,
+            for<'a> <G::Original<'a> as std::ops::Index<SyntaxNodeRef>>::Output:
+                SyntaxNode + Sized + Clone,
+        {
             fn call(
                 &self,
-                graph: &mut Graph,
-                _source: &str,
+                graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
-                let node = graph[parameters.param()?.into_syntax_node_ref()?];
+                let node = &graph[parameters.param()?.into_syntax_node_ref()?];
                 parameters.finish()?;
                 Ok(Value::Integer(node.start_position().column as u32))
             }
@@ -353,14 +396,18 @@ pub mod stdlib {
         // function.
         pub struct EndRow;
 
-        impl Function for EndRow {
+        impl<G: Erzd> Function<G> for EndRow
+        where
+            for<'a> G::Original<'a>: std::ops::Index<SyntaxNodeRef>,
+            for<'a> <G::Original<'a> as std::ops::Index<SyntaxNodeRef>>::Output:
+                SyntaxNode + Sized + Clone,
+        {
             fn call(
                 &self,
-                graph: &mut Graph,
-                _source: &str,
+                graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
-                let node = graph[parameters.param()?.into_syntax_node_ref()?];
+                let node = &graph[parameters.param()?.into_syntax_node_ref()?];
                 parameters.finish()?;
                 Ok(Value::Integer(node.end_position().row as u32))
             }
@@ -370,14 +417,18 @@ pub mod stdlib {
         // function.
         pub struct EndColumn;
 
-        impl Function for EndColumn {
+        impl<G: Erzd> Function<G> for EndColumn
+        where
+            for<'a> G::Original<'a>: std::ops::Index<SyntaxNodeRef>,
+            for<'a> <G::Original<'a> as std::ops::Index<SyntaxNodeRef>>::Output:
+                SyntaxNode + Sized + Clone,
+        {
             fn call(
                 &self,
-                graph: &mut Graph,
-                _source: &str,
+                graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
-                let node = graph[parameters.param()?.into_syntax_node_ref()?];
+                let node = &graph[parameters.param()?.into_syntax_node_ref()?];
                 parameters.finish()?;
                 Ok(Value::Integer(node.end_position().column as u32))
             }
@@ -387,14 +438,18 @@ pub mod stdlib {
         // function.
         pub struct NodeType;
 
-        impl Function for NodeType {
+        impl<G: Erzd> Function<G> for NodeType
+        where
+            for<'a> G::Original<'a>: std::ops::Index<SyntaxNodeRef>,
+            for<'a> <G::Original<'a> as std::ops::Index<SyntaxNodeRef>>::Output:
+                SyntaxNode + Sized + Clone,
+        {
             fn call(
                 &self,
-                graph: &mut Graph,
-                _source: &str,
+                graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
-                let node = graph[parameters.param()?.into_syntax_node_ref()?];
+                let node = &graph[parameters.param()?.into_syntax_node_ref()?];
                 parameters.finish()?;
                 Ok(Value::String(node.kind().to_string()))
             }
@@ -405,14 +460,18 @@ pub mod stdlib {
 
         pub struct NamedChildCount;
 
-        impl Function for NamedChildCount {
+        impl<G: Erzd> Function<G> for NamedChildCount
+        where
+            for<'a> G::Original<'a>: std::ops::Index<SyntaxNodeRef>,
+            for<'a> <G::Original<'a> as std::ops::Index<SyntaxNodeRef>>::Output:
+                SyntaxNode + Sized + Clone,
+        {
             fn call(
                 &self,
-                graph: &mut Graph,
-                _source: &str,
+                graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
-                let node = graph[parameters.param()?.into_syntax_node_ref()?];
+                let node = &graph[parameters.param()?.into_syntax_node_ref()?];
                 parameters.finish()?;
                 Ok(Value::Integer(node.named_child_count() as u32))
             }
@@ -425,13 +484,16 @@ pub mod stdlib {
         /// The implementation of the standard [`node`][`crate::reference::functions#node`] function.
         pub struct Node;
 
-        impl Function for Node {
+        impl<G: Erzd> Function<G> for Node
+        where
+            for<'a> G::Original<'a>: crate::graph::WithSynNodes,
+        {
             fn call(
                 &self,
-                graph: &mut Graph,
-                _source: &str,
+                graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
+                use crate::graph::WithSynNodes;
                 parameters.finish()?;
                 let node = graph.add_graph_node();
                 Ok(Value::GraphNode(node))
@@ -445,11 +507,10 @@ pub mod stdlib {
         /// The implementation of the standard [`not`][`crate::reference::functions#not`] function.
         pub struct Not;
 
-        impl Function for Not {
+        impl<G: Erzd> Function<G> for Not {
             fn call(
                 &self,
-                _graph: &mut Graph,
-                _source: &str,
+                _graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
                 let result = !parameters.param()?.as_boolean()?;
@@ -461,11 +522,10 @@ pub mod stdlib {
         /// The implementation of the standard [`and`][`crate::reference::functions#and`] function.
         pub struct And;
 
-        impl Function for And {
+        impl<G: Erzd> Function<G> for And {
             fn call(
                 &self,
-                _graph: &mut Graph,
-                _source: &str,
+                _graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
                 let mut result = true;
@@ -479,11 +539,10 @@ pub mod stdlib {
         /// The implementation of the standard [`or`][`crate::reference::functions#or`] function.
         pub struct Or;
 
-        impl Function for Or {
+        impl<G: Erzd> Function<G> for Or {
             fn call(
                 &self,
-                _graph: &mut Graph,
-                _source: &str,
+                _graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
                 let mut result = false;
@@ -501,11 +560,10 @@ pub mod stdlib {
         /// The implementation of the standard [`plus`][`crate::reference::functions#plus`] function.
         pub struct Plus;
 
-        impl Function for Plus {
+        impl<G: Erzd> Function<G> for Plus {
             fn call(
                 &self,
-                _graph: &mut Graph,
-                _source: &str,
+                _graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
                 let mut result = 0;
@@ -523,11 +581,10 @@ pub mod stdlib {
         /// The implementation of the standard [`format`][`crate::reference::functions#format`] function.
         pub struct Format;
 
-        impl Function for Format {
+        impl<G: Erzd> Function<G> for Format {
             fn call(
                 &self,
-                _graph: &mut Graph,
-                _source: &str,
+                _graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
                 let format = parameters.param()?.into_string()?;
@@ -560,11 +617,10 @@ pub mod stdlib {
         /// The implementation of the standard [`replace`][`crate::reference::functions#replace`] function.
         pub struct Replace;
 
-        impl Function for Replace {
+        impl<G: Erzd> Function<G> for Replace {
             fn call(
                 &self,
-                _graph: &mut Graph,
-                _source: &str,
+                _graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
                 let text = parameters.param()?.into_string()?;
@@ -587,11 +643,10 @@ pub mod stdlib {
         /// The implementation of the standard [`concat`][`crate::reference::functions#concat`] function.
         pub struct Concat;
 
-        impl Function for Concat {
+        impl<G: Erzd> Function<G> for Concat {
             fn call(
                 &self,
-                _graph: &mut Graph,
-                _source: &str,
+                _graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
                 let mut result = Vec::new();
@@ -605,11 +660,10 @@ pub mod stdlib {
         /// The implementation of the standard [`is-empty`][`crate::reference::functions#is-empty`] function.
         pub struct IsEmpty;
 
-        impl Function for IsEmpty {
+        impl<G: Erzd> Function<G> for IsEmpty {
             fn call(
                 &self,
-                _graph: &mut Graph,
-                _source: &str,
+                _graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
                 let list = parameters.param()?.into_list()?;
@@ -620,11 +674,10 @@ pub mod stdlib {
         /// The implementation of the standard [`join`][`crate::reference::functions#join`] function.
         pub struct Join;
 
-        impl Function for Join {
+        impl<G: Erzd> Function<G> for Join {
             fn call(
                 &self,
-                _graph: &mut Graph,
-                _source: &str,
+                _graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
                 let list = parameters.param()?.into_list()?;
@@ -645,11 +698,10 @@ pub mod stdlib {
         /// The implementation of the standard [`length`][`crate::reference::functions#length`] function.
         pub struct Length;
 
-        impl Function for Length {
+        impl<G: Erzd> Function<G> for Length {
             fn call(
                 &self,
-                _graph: &mut Graph,
-                _source: &str,
+                _graph: &mut G::Original<'_>,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
                 let list = parameters.param()?.into_list()?;

@@ -29,13 +29,19 @@
 pub mod reference;
 
 pub mod ast;
-mod checker;
+pub mod checker;
 mod execution;
 pub mod functions;
 pub mod graph;
 pub mod parse_error;
-mod parser;
+pub mod parser;
 mod variables;
+
+mod generic_query;
+pub use generic_query::GenQuery;
+pub use generic_query::ExtendedableQuery;
+pub use generic_query::ExtendingStringQuery;
+pub use generic_query::MyTSNode;
 
 pub use execution::error::ExecutionError;
 pub use execution::CancellationError;

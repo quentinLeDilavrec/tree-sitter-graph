@@ -12,8 +12,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt;
 use tree_sitter::CaptureQuantifier;
-use tree_sitter::Language;
-use tree_sitter::Query;
 
 use crate::parser::Range;
 use crate::Identifier;
@@ -21,27 +19,27 @@ use crate::Location;
 
 /// A graph DSL file
 #[derive(Debug)]
-pub struct File {
-    pub language: Language,
+pub struct File<Q: crate::GenQuery, I = u32> {
+    pub language: Q::Lang,
     /// The expected global variables used in this file
     pub globals: Vec<Global>,
     /// The scoped variables that are inherited by child nodes
     pub inherited_variables: HashSet<Identifier>,
     /// The combined query of all stanzas in the file
-    pub query: Option<Query>,
+    pub query: Option<Q>,
     /// The list of stanzas in the file
-    pub stanzas: Vec<Stanza>,
+    pub stanzas: Vec<Stanza<Q, I>>,
     /// Attribute shorthands defined in the file
     pub shorthands: AttributeShorthands,
 }
 
-impl File {
-    pub fn new(language: Language) -> File {
+impl<Q: crate::GenQuery> File<Q> {
+    pub fn new(language: Q::Lang) -> Self {
         File {
             language,
             globals: Vec::new(),
             inherited_variables: HashSet::new(),
-            query: None,
+            query: Default::default(),
             stanzas: Vec::new(),
             shorthands: AttributeShorthands::new(),
         }
@@ -62,15 +60,15 @@ pub struct Global {
 
 /// One stanza within a file
 #[derive(Debug)]
-pub struct Stanza {
+pub struct Stanza<Q, I = u32> {
     /// The tree-sitter query for this stanza
-    pub query: Query,
+    pub query: Q,
     /// The list of statements in the stanza
     pub statements: Vec<Statement>,
     /// Capture index of the full match in the stanza query
-    pub full_match_stanza_capture_index: usize,
+    pub full_match_stanza_capture_index: I,
     /// Capture index of the full match in the file query
-    pub full_match_file_capture_index: usize,
+    pub full_match_file_capture_index: I,
     pub range: Range,
 }
 

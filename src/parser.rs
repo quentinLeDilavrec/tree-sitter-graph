@@ -23,12 +23,14 @@ use tree_sitter::Query;
 use tree_sitter::QueryError;
 
 use crate::ast;
+use crate::generic_query::ExtendedableQuery;
+use crate::generic_query::GenQuery;
 use crate::parse_error::Excerpt;
 use crate::Identifier;
 
 pub const FULL_MATCH: &str = "__tsg__full_match";
 
-impl ast::File {
+impl ast::File<Query> {
     /// Parses a graph DSL file, returning a new `File` instance.
     pub fn from_str(language: Language, source: &str) -> Result<Self, ParseError> {
         let mut file = ast::File::new(language);
@@ -43,9 +45,27 @@ impl ast::File {
         note = "Parsing multiple times into the same `File` instance is unsound. Use `File::from_str` instead."
     )]
     pub fn parse(&mut self, content: &str) -> Result<(), ParseError> {
-        Parser::new(content).parse_into_file(self)
+        Parser::<crate::ExtendingStringQuery>::new(content).parse_into_file(self)
     }
 }
+// impl<Q: GenQuery> ast::File<Q> {
+//     /// Parses a graph DSL file, returning a new `File` instance.
+//     pub fn from_str(language: Q::Lang, source: &str) -> Result<Self, ParseError> {
+//         let mut file = ast::File::new(language);
+//         #[allow(deprecated)]
+//         file.parse(source)?;
+//         // file.check()?; // TODO uncomment and impl checks for generic ExtQ
+//         Ok(file)
+//     }
+
+//     /// Parses a graph DSL file, adding its content to an existing `File` instance.
+//     #[deprecated(
+//         note = "Parsing multiple times into the same `File` instance is unsound. Use `File::from_str` instead."
+//     )]
+//     pub fn parse(&mut self, content: &str) -> Result<(), ParseError> {
+//         Parser::<Q::Ext>::new(content).parse_into_file(self)
+//     }
+// }
 
 // ----------------------------------------------------------------------------
 // Parse errors
@@ -190,12 +210,12 @@ impl Display for Range {
 // ----------------------------------------------------------------------------
 // Parser
 
-struct Parser<'a> {
+pub struct Parser<'a, ExtQ> {
     source: &'a str,
     chars: Peekable<Chars<'a>>,
     offset: usize,
     location: Location,
-    query_source: String,
+    pub query_source: ExtQ,
 }
 
 fn is_ident_start(c: char) -> bool {
@@ -206,10 +226,10 @@ fn is_ident(c: char) -> bool {
     c == '_' || c == '-' || c.is_alphanumeric()
 }
 
-impl<'a> Parser<'a> {
-    fn new(source: &'a str) -> Parser<'a> {
+impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
+    pub fn new(source: &'a str) -> Parser<'a, ExtQ> {
         let chars = source.chars().peekable();
-        let query_source = String::with_capacity(source.len());
+        let query_source = ExtQ::with_capacity(source.len());
         Parser {
             source,
             chars,
@@ -220,7 +240,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-impl<'a> Parser<'a> {
+impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
     fn peek(&mut self) -> Result<char, ParseError> {
         self.chars
             .peek()
@@ -288,7 +308,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_into_file(&mut self, file: &mut ast::File) -> Result<(), ParseError> {
+    pub fn parse_into_file(&mut self, file: &mut ast::File<ExtQ::Query>) -> Result<(), ParseError> {
         self.consume_whitespace();
         while self.try_peek().is_some() {
             if let Ok(_) = self.consume_token("attribute") {
@@ -305,13 +325,13 @@ impl<'a> Parser<'a> {
                 let name = self.parse_identifier("inherit")?;
                 file.inherited_variables.insert(name);
             } else {
-                let stanza = self.parse_stanza(file.language.clone())?;
+                let stanza = self.parse_stanza(&file.language)?;
                 file.stanzas.push(stanza);
             }
             self.consume_whitespace();
         }
         // we can unwrap here because all queries have already been parsed before
-        file.query = Some(Query::new(&file.language, &self.query_source).unwrap());
+        file.query = Some(self.query_source.make_main_query(&file.language));
         Ok(())
     }
 
@@ -369,7 +389,10 @@ impl<'a> Parser<'a> {
         Ok(quantifier)
     }
 
-    fn parse_stanza(&mut self, language: Language) -> Result<ast::Stanza, ParseError> {
+    fn parse_stanza(
+        &mut self,
+        language: &ExtQ::Lang,
+    ) -> Result<ast::Stanza<ExtQ::Query>, ParseError> {
         let start = self.location;
         let (query, full_match_stanza_capture_index) = self.parse_query(language)?;
         self.consume_whitespace();
@@ -380,39 +403,38 @@ impl<'a> Parser<'a> {
             query,
             statements,
             full_match_stanza_capture_index,
-            full_match_file_capture_index: usize::MAX, // set in checker
+            full_match_file_capture_index: u32::MAX, // set in checker
             range,
         })
     }
 
-    fn parse_query(&mut self, language: Language) -> Result<(Query, usize), ParseError> {
+    fn parse_query(&mut self, language: &ExtQ::Lang) -> Result<(ExtQ::Query, u32), ParseError> {
         let location = self.location;
         let query_start = self.offset;
         self.skip_query()?;
         let query_end = self.offset;
         let query_source = self.source[query_start..query_end].to_owned() + "@" + FULL_MATCH;
-        // If tree-sitter allowed us to incrementally add patterns to a query, we wouldn't need
-        // the global query_source.
-        self.query_source += &query_source;
-        self.query_source += "\n";
-        let query = Query::new(&language, &query_source).map_err(|mut e| {
-            // the column of the first row of a query pattern must be shifted by the whitespace
-            // that was already consumed
-            if e.row == 0 {
-                // must come before we update e.row!
-                e.column += location.column;
-            }
-            e.row += location.row;
-            e.offset += query_start;
-            e
-        })?;
+        let query = self
+            .query_source
+            .make_query(language, &query_source)
+            .map_err(|mut e| {
+                // the column of the first row of a query pattern must be shifted by the whitespace
+                // that was already consumed
+                if e.row == 0 {
+                    // must come before we update e.row!
+                    e.column += location.column;
+                }
+                e.row += location.row;
+                e.offset += query_start;
+                e
+            })?;
         if query.pattern_count() > 1 {
             return Err(ParseError::UnexpectedQueryPatterns(location));
         }
         let full_match_capture_index = query
             .capture_index_for_name(FULL_MATCH)
             .expect("missing capture index for full match")
-            as usize;
+            as u32;
         Ok((query, full_match_capture_index))
     }
 

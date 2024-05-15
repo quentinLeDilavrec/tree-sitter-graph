@@ -31,30 +31,194 @@ use tree_sitter::Node;
 use crate::execution::error::ExecutionError;
 use crate::Identifier;
 use crate::Location;
+use crate::MyTSNode;
 
 /// A graph produced by executing a graph DSL file.  Graphs include a lifetime parameter to ensure
 /// that they don't outlive the tree-sitter syntax tree that they are generated from.
-#[derive(Default)]
-pub struct Graph<'tree> {
-    pub(crate) syntax_nodes: HashMap<SyntaxNodeID, Node<'tree>>,
+pub struct Graph<S> {
+    pub(crate) syntax_nodes: HashMap<SyntaxNodeID, S>,
     graph_nodes: Vec<GraphNode>,
 }
+
+impl<S> Default for Graph<S> {
+    fn default() -> Self {
+        Self {
+            syntax_nodes: Default::default(),
+            graph_nodes: Default::default(),
+        }
+    }
+}
+
+pub trait SyntaxNode {
+    fn id(&self) -> usize;
+    fn kind(&self) -> &'static str;
+    fn start_position(&self) -> tree_sitter::Point;
+    fn end_position(&self) -> tree_sitter::Point;
+    fn byte_range(&self) -> std::ops::Range<usize>;
+    fn range(&self) -> tree_sitter::Range;
+    fn text(&self) -> String;
+    fn named_child_count(&self) -> usize;
+    fn parent(&self) -> Option<Self>
+    where
+        Self: Sized;
+}
+
+pub trait SyntaxNodeExt: SyntaxNode + Clone {
+    type Cursor;
+    fn walk(&self) -> Self::Cursor;
+    fn named_children<'cursor>(
+        &self,
+        cursor: &'cursor mut Self::Cursor,
+    ) -> impl ExactSizeIterator<Item = Self> + 'cursor
+    where
+        Self: 'cursor;
+
+    type QM<'cursor>: QMatch<Item = Self>
+    where
+        Self: 'cursor;
+}
+
+// impl<'tree> SyntaxNode for Node<'tree> {
+//     fn id(&self) -> usize {
+//         self.id()
+//     }
+
+//     fn kind(&self) -> &'static str {
+//         self.kind()
+//     }
+
+//     fn start_position(&self) -> tree_sitter::Point {
+//         self.start_position()
+//     }
+
+//     fn end_position(&self) -> tree_sitter::Point {
+//         self.end_position()
+//     }
+
+//     fn byte_range(&self) -> std::ops::Range<usize> {
+//         self.byte_range()
+//     }
+//     fn range(&self) -> tree_sitter::Range {
+//         self.range()
+//     }
+//     fn text(&self) -> String {
+//         Default::default()
+//         // unimplemented!("no access to source")
+//     }
+//     fn named_child_count(&self) -> usize {
+//         self.named_child_count()
+//     }
+
+//     fn parent(&self) -> Option<Self>
+//     where
+//         Self: Sized,
+//     {
+//         self.parent()
+//     }
+// }
+
+// impl<'tree> SyntaxNodeExt for Node<'tree> {
+//     type Cursor = tree_sitter::TreeCursor<'tree>;
+//     fn walk(&self) -> Self::Cursor {
+//         self.walk()
+//     }
+//     fn named_children<'cursor>(
+//         &self,
+//         cursor: &'cursor mut Self::Cursor,
+//     ) -> impl ExactSizeIterator<Item = Self> + 'cursor
+//     where
+//         Self: 'cursor,
+//     {
+//         self.named_children(cursor)
+//     }
+//     type QM<'cursor> = MyTSQueryMatch<'cursor, 'tree> where 'tree: 'cursor;
+// }
 
 pub(crate) type SyntaxNodeID = u32;
 type GraphNodeID = u32;
 
-impl<'tree> Graph<'tree> {
+impl<S> Graph<S> {
     /// Creates a new, empty graph.
-    pub fn new() -> Graph<'tree> {
+    pub fn new() -> Self {
         Graph::default()
     }
+}
 
+pub trait WithSynNodes:
+    LErazng + Index<GraphNodeRef, Output = GraphNode> + IndexMut<GraphNodeRef, Output = GraphNode>
+{
+    type Node: SyntaxNodeExt + Clone;
+    fn node(&self, r: SyntaxNodeRef) -> Option<&Self::Node>;
+
+    /// Adds a new graph node to the graph, returning a graph DSL reference to it.
+    fn add_graph_node(&mut self) -> GraphNodeRef;
+    fn add_syntax_node(&mut self, node: Self::Node) -> SyntaxNodeRef;
+}
+
+pub struct GraphErazing<S>(std::marker::PhantomData<S>);
+pub struct TSNodeErazing;
+
+impl<S> Default for GraphErazing<S> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+pub trait Erzd {
+    type Original<'a>;
+}
+
+impl<S: Erzd> Erzd for GraphErazing<S> {
+    type Original<'a> = Graph<S::Original<'a>>;
+}
+
+impl Erzd for TSNodeErazing {
+    type Original<'tree> = MyTSNode<'tree>;
+}
+
+pub trait LErazng {
+    type LErazing: Erzd;
+}
+
+impl<'tree> LErazng for MyTSNode<'tree> {
+    type LErazing = TSNodeErazing;
+}
+
+impl<S: LErazng> LErazng for Graph<S> {
+    type LErazing = GraphErazing<S::LErazing>;
+}
+
+impl<S: LErazng + SyntaxNodeExt + Clone> WithSynNodes for Graph<S> {
+    type Node = S;
+
+    fn node(&self, r: SyntaxNodeRef) -> Option<&Self::Node> {
+        self.syntax_nodes.get(&r.index)
+    }
+
+    fn add_graph_node(&mut self) -> GraphNodeRef {
+        self.add_graph_node()
+    }
+
+    fn add_syntax_node(&mut self, node: S) -> SyntaxNodeRef {
+        self.add_syntax_node(node)
+    }
+}
+
+pub trait QMatch {
+    type I: Copy + From<u32>;
+    type Item;
+    fn nodes_for_capture_index(&self, index: Self::I) -> impl Iterator<Item = Self::Item> + '_;
+    fn pattern_index(&self) -> usize;
+}
+
+impl<S: SyntaxNodeExt> Graph<S> {
     /// Adds a syntax node to the graph, returning a graph DSL reference to it.
     ///
     /// The graph won't contain _every_ syntax node in the parsed syntax tree; it will only contain
     /// those nodes that are referenced at some point during the execution of the graph DSL file.
-    pub fn add_syntax_node(&mut self, node: Node<'tree>) -> SyntaxNodeRef {
+    pub fn add_syntax_node(&mut self, node: S) -> SyntaxNodeRef {
         let index = node.id() as SyntaxNodeID;
+        let index = index as SyntaxNodeID;
         let node_ref = SyntaxNodeRef {
             index,
             kind: node.kind(),
@@ -72,17 +236,31 @@ impl<'tree> Graph<'tree> {
         GraphNodeRef(index)
     }
 
+    // Returns an iterator of references to all of the nodes in the graph.
+    pub fn iter_nodes(&self) -> impl Iterator<Item = GraphNodeRef> {
+        (0..self.graph_nodes.len() as u32).map(GraphNodeRef)
+    }
+
+    // Returns the number of nodes in the graph.
+    pub fn node_count(&self) -> usize {
+        self.graph_nodes.len()
+    }
+}
+
+impl<'tree, S> Graph<S> {
     /// Pretty-prints the contents of this graph.
     pub fn pretty_print<'a>(&'a self) -> impl fmt::Display + 'a {
-        struct DisplayGraph<'a, 'tree>(&'a Graph<'tree>);
+        struct DisplayGraph<'a, S>(&'a Graph<S>);
 
-        impl<'a, 'tree> fmt::Display for DisplayGraph<'a, 'tree> {
+        impl<'a, S> fmt::Display for DisplayGraph<'a, S> {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 let graph = self.0;
                 for (node_index, node) in graph.graph_nodes.iter().enumerate() {
-                    write!(f, "node {}\n{}", node_index, node.attributes)?;
+                    writeln!(f, "node {}", node_index)?;
+                    write!(f, "{}", node.attributes)?;
                     for (sink, edge) in &node.outgoing_edges {
-                        write!(f, "edge {} -> {}\n{}", node_index, *sink, edge.attributes)?;
+                        writeln!(f, "edge {} -> {}", node_index, *sink)?;
+                        write!(f, "{}", edge.attributes)?;
                     }
                 }
                 Ok(())
@@ -98,39 +276,29 @@ impl<'tree> Graph<'tree> {
             File::create(path)?.write_all(s.as_bytes())
         })
     }
-
-    // Returns an iterator of references to all of the nodes in the graph.
-    pub fn iter_nodes(&self) -> impl Iterator<Item = GraphNodeRef> {
-        (0..self.graph_nodes.len() as u32).map(GraphNodeRef)
-    }
-
-    // Returns the number of nodes in the graph.
-    pub fn node_count(&self) -> usize {
-        self.graph_nodes.len()
-    }
 }
 
-impl<'tree> Index<SyntaxNodeRef> for Graph<'tree> {
-    type Output = Node<'tree>;
-    fn index(&self, node_ref: SyntaxNodeRef) -> &Node<'tree> {
+impl<S> Index<SyntaxNodeRef> for Graph<S> {
+    type Output = S;
+    fn index(&self, node_ref: SyntaxNodeRef) -> &S {
         &self.syntax_nodes[&node_ref.index]
     }
 }
 
-impl Index<GraphNodeRef> for Graph<'_> {
+impl<S> Index<GraphNodeRef> for Graph<S> {
     type Output = GraphNode;
     fn index(&self, index: GraphNodeRef) -> &GraphNode {
         &self.graph_nodes[index.0 as usize]
     }
 }
 
-impl<'tree> IndexMut<GraphNodeRef> for Graph<'_> {
+impl<S> IndexMut<GraphNodeRef> for Graph<S> {
     fn index_mut(&mut self, index: GraphNodeRef) -> &mut GraphNode {
         &mut self.graph_nodes[index.0 as usize]
     }
 }
 
-impl<'tree> Serialize for Graph<'tree> {
+impl<N> Serialize for Graph<N> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(self.graph_nodes.len()))?;
         for (node_index, node) in self.graph_nodes.iter().enumerate() {
@@ -312,7 +480,7 @@ impl std::fmt::Display for Attributes {
         keys.sort_by(|a, b| a.cmp(b));
         for key in &keys {
             let value = &self.values[*key];
-            write!(f, "  {}: {:?}\n", key, value)?;
+            writeln!(f, "  {}: {:?}", key, value)?;
         }
         Ok(())
     }
@@ -441,11 +609,13 @@ impl Value {
     /// Coerces this value into a syntax node, returning an error if it's some other type
     /// of value.
     #[deprecated(note = "Use the pattern graph[value.into_syntax_node_ref(graph)] instead")]
-    pub fn into_syntax_node<'a, 'tree>(
+    pub fn into_syntax_node<'a, S: LErazng + SyntaxNodeExt>(
         self,
-        graph: &'a Graph<'tree>,
-    ) -> Result<&'a Node<'tree>, ExecutionError> {
-        Ok(&graph[self.into_syntax_node_ref()?])
+        graph: &'a Graph<S>,
+    ) -> Result<&'a S, ExecutionError> {
+        graph
+            .node(self.into_syntax_node_ref()?)
+            .ok_or_else(|| todo!())
     }
 
     pub fn as_syntax_node_ref<'a, 'tree>(&self) -> Result<SyntaxNodeRef, ExecutionError> {
