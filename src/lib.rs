@@ -42,6 +42,7 @@ pub use generic_query::GenQuery;
 pub use generic_query::ExtendedableQuery;
 pub use generic_query::ExtendingStringQuery;
 pub use generic_query::MyTSNode;
+pub use generic_query::MyQueryMatch;
 
 pub use execution::error::ExecutionError;
 pub use execution::CancellationError;

@@ -10,10 +10,11 @@ use tree_sitter::Parser;
 use tree_sitter_graph::graph::Graph;
 use tree_sitter_graph::graph::Value;
 use tree_sitter_graph::Identifier;
+use tree_sitter_graph::MyTSNode;
 
 #[test]
 fn can_overwrite_attributes() {
-    let mut graph = Graph::<tree_sitter::Node<'_>>::new();
+    let mut graph = Graph::<MyTSNode<'_>>::new();
     let node = graph.add_graph_node();
     let attrs = &mut graph[node].attributes;
     let name = Identifier::from("name");
@@ -24,7 +25,7 @@ fn can_overwrite_attributes() {
 
 #[test]
 fn can_iterate_graph_nodes() {
-    let mut graph = Graph::<tree_sitter::Node<'_>>::new();
+    let mut graph = Graph::<MyTSNode<'_>>::new();
     let node0 = graph.add_graph_node();
     let node1 = graph.add_graph_node();
     let node2 = graph.add_graph_node();
@@ -34,7 +35,7 @@ fn can_iterate_graph_nodes() {
 
 #[test]
 fn can_iterate_graph_edges() {
-    let mut graph = Graph::<tree_sitter::Node<'_>>::new();
+    let mut graph = Graph::<MyTSNode<'_>>::new();
     let node0 = graph.add_graph_node();
     let node1 = graph.add_graph_node();
     let node2 = graph.add_graph_node();
@@ -54,8 +55,9 @@ fn can_display_graph() {
     parser.set_language(&tree_sitter_python::language()).unwrap();
     let tree = parser.parse(python_source, None).unwrap();
 
-    let mut graph = Graph::new();
-    let root = graph.add_syntax_node(tree.root_node());
+    let mut graph = Graph::<MyTSNode<'_>>::new();
+    let root = graph.add_syntax_node(todo!("would need to expose usually uneeded API, best would be to wrap parser"));
+    // let root = graph.add_syntax_node(tree.root_node());
     let node0 = graph.add_graph_node();
     graph[node0]
         .attributes

@@ -21,6 +21,7 @@ use crate::generic_query::MyQueryMatch;
 use crate::graph::Attributes;
 use crate::graph::Graph;
 use crate::graph::GraphErazing;
+use crate::graph::QMatch;
 use crate::graph::TSNodeErazing;
 use crate::graph::Value;
 use crate::graph::WithSynNodes;
@@ -177,35 +178,30 @@ impl Stanza<tree_sitter::Query> {
         mut visit: F,
     ) -> Result<(), E>
     where
-        F: FnMut(Match<QueryMatch<'_, 'tree>>) -> Result<(), E>,
+        F: FnMut(Match<MyQueryMatch<'_, 'tree>>) -> Result<(), E>,
     {
-        // let tree = crate::generic_query::MyTSNode {
-        //     node: tree.root_node(),
-        //     source,
-        // };
-        todo!()
-        // self.try_visit_matches_strict(tree, source, |mat| {
-        //     let named_captures: Vec<(String, CaptureQuantifier, u32)> = self
-        //         .query
-        //         .capture_names()
-        //         .iter()
-        //         .flat_map(|name| {
-        //             if let Some(index) = self.query.capture_index_for_name(name) {
-        //                 let quantifier = self.query.capture_quantifiers(0)[index as usize];
-        //                 Some((name.to_string(), quantifier, index))
-        //             } else {
-        //                 None
-        //             }
-        //         })
-        //         .filter(|c| c.2 != self.full_match_stanza_capture_index)
-        //         .collect();
-        //     visit(Match {
-        //         mat,
-        //         full_capture_index: self.full_match_stanza_capture_index,
-        //         named_captures,
-        //         query_location: self.range.start,
-        //     })
-        // })
+        self.try_visit_matches_strict(tree, source, |mat| {
+            let named_captures: Vec<(String, CaptureQuantifier, u32)> = self
+                .query
+                .capture_names()
+                .iter()
+                .flat_map(|name| {
+                    if let Some(index) = self.query.capture_index_for_name(name) {
+                        let quantifier = self.query.capture_quantifiers(0)[index as usize];
+                        Some((name.to_string(), quantifier, index))
+                    } else {
+                        None
+                    }
+                })
+                .filter(|c| c.2 != self.full_match_stanza_capture_index)
+                .collect();
+            visit(Match {
+                mat,
+                full_capture_index: self.full_match_stanza_capture_index,
+                named_captures,
+                query_location: self.range.start,
+            })
+        })
     }
 }
 
@@ -217,28 +213,6 @@ pub struct Match<QM> {
 }
 
 impl<'a, 'tree> Match<QueryMatch<'a, 'tree>> {
-    /// Return the top-level matched node.
-    pub fn full_capture(&self) -> Node<'tree> {
-        self.mat
-            .nodes_for_capture_index(self.full_capture_index)
-            .next()
-            .expect("missing full capture")
-    }
-
-    /// Return the matched nodes for a named capture.
-    pub fn named_captures<'s: 'a + 'tree>(
-        &'s self,
-    ) -> impl Iterator<
-        Item = (
-            String,
-            CaptureQuantifier,
-            impl Iterator<Item = Node<'tree>> + 's,
-        ),
-    > {
-        self.named_captures
-            .iter()
-            .map(move |c| (c.0.clone(), c.1, self.mat.nodes_for_capture_index(c.2)))
-    }
 
     /// Return the matched nodes for a named capture.
     pub fn named_capture<'s: 'a + 'tree>(
@@ -252,7 +226,30 @@ impl<'a, 'tree> Match<QueryMatch<'a, 'tree>> {
     }
 }
 
-impl<QM> Match<QM> {
+impl<QM: QMatch> Match<QM> {
+    /// Return the top-level matched node.
+    pub fn full_capture(&self) -> QM::Item {
+        self.mat
+            .nodes_for_capture_index((self.full_capture_index as u32).into())
+            .next()
+            .expect("missing full capture")
+    }
+
+    /// Return the matched nodes for a named capture.
+    pub fn named_captures<'s>(
+        &'s self,
+    ) -> impl Iterator<
+        Item = (
+            String,
+            CaptureQuantifier,
+            impl Iterator<Item = QM::Item> + 's,
+        ),
+    > {
+        self.named_captures
+            .iter()
+            .map(move |c| (c.0.clone(), c.1, self.mat.nodes_for_capture_index((c.2 as u32).into())))
+    }
+
     /// Return an iterator over all capture names.
     pub fn capture_names(&self) -> impl Iterator<Item = String> + '_ {
         self.named_captures.iter().map(|c| c.0.clone())
