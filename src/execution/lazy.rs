@@ -185,8 +185,9 @@ impl<Q: GenQuery, I: Copy> ast::File<Q, I> {
             cancellation_flag.check("processing matches")?;
             let stanza = &self.stanzas[mat.pattern_index()];
             // SAFETY: should be ok, just circumventing the associated lifetime limitations (assumed static)
-            let mat: Q::Match<'_, 'tree> = mat;
-            let mat = unsafe { std::mem::transmute(mat) };
+            // let mat: Q::Match<'_, 'tree> = mat;
+            // let mat = unsafe { std::mem::transmute(mat) };
+            // NOTE: aparently the error is flacky...
             stanza.execute_lazy2(
                 &mat,
                 graph,
