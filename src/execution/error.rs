@@ -92,15 +92,34 @@ pub struct StatementContext {
 }
 
 impl StatementContext {
-    pub(crate) fn new<Q:GenQuery, I>(stmt: &Statement, stanza: &Stanza<Q, I>, source_node: &Q::Node<'_>) -> Self {
+    pub fn new<Q: GenQuery, I>(
+        stmt: &Statement,
+        stanza: &Stanza<Q, I>,
+        source_node: &Q::Node<'_>,
+    ) -> Self {
         use crate::graph::SyntaxNode;
+        // let source_location: Location::from(source_node.start_position()), // TODO make a better location for hyperast;
+        let source_location = Location { row: 0, column: 0 };
+        Self::raw(
+            stmt,
+            stanza.range.start,
+            source_location,
+            source_node.kind().to_string(),
+        )
+    }
+    
+    pub fn raw(
+        stmt: &Statement,
+        stanza_location: Location,
+        source_location: Location,
+        node_kind: String,
+    ) -> Self {
         Self {
             statement: format!("{}", stmt),
             statement_location: stmt.location(),
-            stanza_location: stanza.range.start,
-            // source_location: Location::from(source_node.start_position()), // TODO make a better location for hyperast
-            source_location: Location{ row: 0, column: 0 },
-            node_kind: source_node.kind().to_string(),
+            stanza_location,
+            source_location,
+            node_kind,
         }
     }
 

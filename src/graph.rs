@@ -26,7 +26,6 @@ use serde::Serialize;
 use serde::Serializer;
 use serde_json;
 use smallvec::SmallVec;
-use tree_sitter::Node;
 
 use crate::execution::error::ExecutionError;
 use crate::Identifier;
@@ -69,7 +68,7 @@ pub trait SyntaxNodeExt: SyntaxNode + Clone {
     fn named_children<'cursor>(
         &self,
         cursor: &'cursor mut Self::Cursor,
-    ) -> impl ExactSizeIterator<Item = Self> + 'cursor
+    ) -> impl ExactSizeIterator<Item = Self>
     where
         Self: 'cursor;
 
@@ -77,62 +76,6 @@ pub trait SyntaxNodeExt: SyntaxNode + Clone {
     where
         Self: 'cursor;
 }
-
-// impl<'tree> SyntaxNode for Node<'tree> {
-//     fn id(&self) -> usize {
-//         self.id()
-//     }
-
-//     fn kind(&self) -> &'static str {
-//         self.kind()
-//     }
-
-//     fn start_position(&self) -> tree_sitter::Point {
-//         self.start_position()
-//     }
-
-//     fn end_position(&self) -> tree_sitter::Point {
-//         self.end_position()
-//     }
-
-//     fn byte_range(&self) -> std::ops::Range<usize> {
-//         self.byte_range()
-//     }
-//     fn range(&self) -> tree_sitter::Range {
-//         self.range()
-//     }
-//     fn text(&self) -> String {
-//         Default::default()
-//         // unimplemented!("no access to source")
-//     }
-//     fn named_child_count(&self) -> usize {
-//         self.named_child_count()
-//     }
-
-//     fn parent(&self) -> Option<Self>
-//     where
-//         Self: Sized,
-//     {
-//         self.parent()
-//     }
-// }
-
-// impl<'tree> SyntaxNodeExt for Node<'tree> {
-//     type Cursor = tree_sitter::TreeCursor<'tree>;
-//     fn walk(&self) -> Self::Cursor {
-//         self.walk()
-//     }
-//     fn named_children<'cursor>(
-//         &self,
-//         cursor: &'cursor mut Self::Cursor,
-//     ) -> impl ExactSizeIterator<Item = Self> + 'cursor
-//     where
-//         Self: 'cursor,
-//     {
-//         self.named_children(cursor)
-//     }
-//     type QM<'cursor> = MyTSQueryMatch<'cursor, 'tree> where 'tree: 'cursor;
-// }
 
 pub(crate) type SyntaxNodeID = u32;
 type GraphNodeID = u32;
@@ -207,7 +150,7 @@ impl<S: LErazng + SyntaxNodeExt + Clone> WithSynNodes for Graph<S> {
 pub trait QMatch {
     type I: Copy + From<u32>;
     type Item;
-    fn nodes_for_capture_index(&self, index: Self::I) -> impl Iterator<Item = Self::Item> + '_;
+    fn nodes_for_capture_index(&self, index: Self::I) -> impl Iterator<Item = Self::Item>;
     fn pattern_index(&self) -> usize;
 }
 
@@ -275,6 +218,10 @@ impl<'tree, S> Graph<S> {
         path.map_or(stdout().write_all(s.as_bytes()), |path| {
             File::create(path)?.write_all(s.as_bytes())
         })
+    }
+
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
     }
 }
 

@@ -102,6 +102,11 @@ impl<G: Erzd> Functions<G> {
         Functions::default()
     }
 
+    /// Erazing Functions can be useful when G is very complex
+    pub fn as_any(self) -> Arc<dyn std::any::Any> where G: 'static {
+        Arc::new(self)
+    }
+
     /// Returns the standard library of functions, as defined in the [language
     /// reference][`crate::reference::functions`].
     pub fn essentials() -> Self {

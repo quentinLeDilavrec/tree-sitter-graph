@@ -30,9 +30,11 @@ use crate::Identifier;
 use crate::Location;
 use crate::MyTSNode;
 
-pub(crate) mod error;
+pub mod error;
 mod lazy;
 mod strict;
+
+pub use lazy::Ctx;
 
 impl File<tree_sitter::Query> {
     /// Executes this graph DSL file against a source file.  You must provide the parsed syntax
@@ -133,7 +135,7 @@ impl File<tree_sitter::Query> {
 
 impl<Q: crate::GenQuery, I> File<Q, I> {
 
-    pub(self) fn check_globals(&self, globals: &mut Globals) -> Result<(), ExecutionError> {
+    pub fn check_globals(&self, globals: &mut Globals) -> Result<(), ExecutionError> {
         for global in &self.globals {
             match globals.get(&global.name) {
                 None => {

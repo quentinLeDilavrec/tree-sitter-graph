@@ -5,7 +5,7 @@ use crate::{
     graph::{QMatch, SyntaxNode, SyntaxNodeExt},
 };
 
-pub trait ExtendedableQuery: Default {
+pub trait ExtendedableQuery {
     type Query: GenQuery<Lang = Self::Lang, Ext = Self>;
     type Lang;
     fn as_ref(&self) -> Option<&Self::Query>;
@@ -208,7 +208,7 @@ impl<'tree> SyntaxNodeExt for MyTSNode<'tree> {
     fn named_children<'cursor>(
         &self,
         cursor: &'cursor mut Self::Cursor,
-    ) -> impl ExactSizeIterator<Item = Self> + 'cursor
+    ) -> impl ExactSizeIterator<Item = Self>
     where
         Self: 'cursor,
     {
@@ -255,7 +255,7 @@ impl<'cursor, 'tree> crate::graph::QMatch for MyQueryMatch<'cursor, 'tree> {
 
     type Item = MyTSNode<'tree>;
 
-    fn nodes_for_capture_index(&self, index: Self::I) -> impl Iterator<Item = Self::Item> + '_ {
+    fn nodes_for_capture_index(&self, index: Self::I) -> impl Iterator<Item = Self::Item> {
         self.mat
             .nodes_for_capture_index(index)
             .map(move |node| MyTSNode {

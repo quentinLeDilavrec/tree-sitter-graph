@@ -30,7 +30,7 @@ pub mod reference;
 
 pub mod ast;
 pub mod checker;
-mod execution;
+pub mod execution;
 pub mod functions;
 pub mod graph;
 pub mod parse_error;

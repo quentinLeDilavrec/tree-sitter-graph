@@ -228,8 +228,12 @@ fn is_ident(c: char) -> bool {
 
 impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
     pub fn new(source: &'a str) -> Parser<'a, ExtQ> {
-        let chars = source.chars().peekable();
         let query_source = ExtQ::with_capacity(source.len());
+        Self::with_ext(query_source, source)
+    }
+    
+    pub fn with_ext(query_source: ExtQ, source: &'a str) -> Parser<'a, ExtQ> {
+        let chars = source.chars().peekable();
         Parser {
             source,
             chars,

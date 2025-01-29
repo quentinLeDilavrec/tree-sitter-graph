@@ -18,9 +18,11 @@ use crate::Identifier;
 use crate::Location;
 
 /// A graph DSL file
+///
+/// NOTE needed some massages to avoid invariance over Q, see https://github.com/rust-lang/rust/issues/57440#issuecomment-466393227
 #[derive(Debug)]
-pub struct File<Q: crate::GenQuery, I = u32> {
-    pub language: Q::Lang,
+pub struct File<Q: crate::GenQuery<Lang = L>, I = u32, L = <Q as crate::GenQuery>::Lang> {
+    pub language: L,
     /// The expected global variables used in this file
     pub globals: Vec<Global>,
     /// The scoped variables that are inherited by child nodes
@@ -43,6 +45,15 @@ impl<Q: crate::GenQuery> File<Q> {
             stanzas: Vec::new(),
             shorthands: AttributeShorthands::new(),
         }
+    }
+
+    /// Erazing File can be useful when Q is very complex
+    pub fn as_any(self) -> Box<dyn std::any::Any + Send + Sync>
+    where
+        Q: 'static + Send + Sync,
+        <Q as crate::GenQuery>::Lang: Sync + Send,
+    {
+        Box::new(self)
     }
 }
 
