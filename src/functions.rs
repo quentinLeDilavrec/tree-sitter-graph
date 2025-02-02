@@ -103,7 +103,7 @@ impl<G: Erzd> Functions<G> {
     }
 
     /// Erazing Functions can be useful when G is very complex
-    pub fn as_any(self) -> Arc<dyn std::any::Any> where G: 'static {
+    pub fn as_any(self) -> Arc<dyn std::any::Any + Send + Sync + 'static> where G: 'static {
         Arc::new(self)
     }
 
