@@ -16,6 +16,8 @@ use crate::execution::error::ExecutionError;
 use crate::execution::error::ResultWithExecutionError;
 use crate::graph::Attributes;
 use crate::graph::Erzd;
+use crate::graph::WithAttrs;
+use crate::graph::WithOutGoingEdges as _;
 use crate::graph::WithSynNodes;
 use crate::Identifier;
 
@@ -50,12 +52,11 @@ impl LazyGraph {
         }
     }
 
-    pub(super) fn evaluate<'a, G: Erzd>(
+    pub(super) fn evaluate<'a, G: WithSynNodes>(
         &self,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
     where
-        G::Original<'a>: WithSynNodes,
     {
         for stmt in &self.edge_statements {
             stmt.evaluate(exec)?;
@@ -80,12 +81,11 @@ pub(super) enum LazyStatement {
 }
 
 impl LazyStatement {
-    pub(super) fn evaluate<'a, G: Erzd>(
+    pub(super) fn evaluate<'a, G: WithSynNodes>(
         &self,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
     where
-        G::Original<'a>: WithSynNodes,
     {
         exec.cancellation_flag.check("evaluating statement")?;
         debug!("eval {}", self);
@@ -165,12 +165,11 @@ impl LazyAddGraphNodeAttribute {
         }
     }
 
-    pub(super) fn evaluate<'a, G: Erzd>(
+    pub(super) fn evaluate<'a, G: WithSynNodes>(
         &self,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
     where
-        G::Original<'a>: WithSynNodes,
     {
         let node = self
             .node
@@ -183,7 +182,7 @@ impl LazyAddGraphNodeAttribute {
                 self.debug_info.clone(),
             );
             if let Err(_) = exec.graph[node]
-                .attributes
+                .attrs_mut()
                 .add(attribute.name.clone(), value)
             {
                 return Err(ExecutionError::DuplicateAttribute(format!(
@@ -237,12 +236,11 @@ impl LazyCreateEdge {
         }
     }
 
-    pub(super) fn evaluate<'a, G: Erzd>(
+    pub(super) fn evaluate<'a, G: WithSynNodes>(
         &self,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
     where
-        G::Original<'a>: WithSynNodes,
     {
         let source = self
             .source
@@ -294,12 +292,11 @@ impl LazyAddEdgeAttribute {
         }
     }
 
-    pub(super) fn evaluate<'a, G: Erzd>(
+    pub(super) fn evaluate<'a, G: WithSynNodes>(
         &self,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
     where
-        G::Original<'a>: WithSynNodes,
     {
         let source = self
             .source
@@ -371,12 +368,11 @@ impl LazyPrint {
         }
     }
 
-    pub(super) fn evaluate<'a, G: Erzd>(
+    pub(super) fn evaluate<'a, G: WithSynNodes>(
         &self,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
     where
-        G::Original<'a>: WithSynNodes,
     {
         for argument in &self.arguments {
             match argument {

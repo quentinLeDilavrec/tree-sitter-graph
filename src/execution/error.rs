@@ -11,6 +11,7 @@ use thiserror::Error;
 use crate::ast::Stanza;
 use crate::ast::Statement;
 use crate::execution::CancellationError;
+use crate::graph::SyntaxNode;
 use crate::parse_error::Excerpt;
 use crate::GenQuery;
 use crate::Location;
@@ -92,12 +93,11 @@ pub struct StatementContext {
 }
 
 impl StatementContext {
-    pub fn new<Q: GenQuery, I>(
+    pub fn new<Q: GenQuery, I, N: SyntaxNode>(
         stmt: &Statement,
         stanza: &Stanza<Q, I>,
-        source_node: &Q::Node<'_>,
+        source_node: &N,
     ) -> Self {
-        use crate::graph::SyntaxNode;
         // let source_location: Location::from(source_node.start_position()), // TODO make a better location for hyperast;
         let source_location = Location { row: 0, column: 0 };
         Self::raw(

@@ -44,7 +44,7 @@ impl File<tree_sitter::Query> {
         &self,
         tree: &'tree Tree,
         source: &'tree str,
-        config: &ExecutionConfig<GraphErazing<TSNodeErazing>>,
+        config: &ExecutionConfig<Graph<MyTSNode<'tree>>>,
         cancellation_flag: &dyn CancellationFlag,
     ) -> Result<Graph<MyTSNode<'tree>>, ExecutionError> {
         let mut graph = Graph::new();
@@ -62,7 +62,7 @@ impl File<tree_sitter::Query> {
         graph: &mut Graph<MyTSNode<'tree>>,
         tree: &'tree Tree,
         source: &'tree str,
-        config: &ExecutionConfig<GraphErazing<TSNodeErazing>>,
+        config: &ExecutionConfig<Graph<MyTSNode<'tree>>>,
         cancellation_flag: &dyn CancellationFlag,
     ) -> Result<(), ExecutionError> {
         if config.lazy {
@@ -134,7 +134,6 @@ impl File<tree_sitter::Query> {
 }
 
 impl<Q: crate::GenQuery, I> File<Q, I> {
-
     pub fn check_globals(&self, globals: &mut Globals) -> Result<(), ExecutionError> {
         for global in &self.globals {
             match globals.get(&global.name) {
@@ -215,7 +214,6 @@ pub struct Match<QM> {
 }
 
 impl<'a, 'tree> Match<QueryMatch<'a, 'tree>> {
-
     /// Return the matched nodes for a named capture.
     pub fn named_capture<'s: 'a + 'tree>(
         &'s self,
@@ -247,9 +245,13 @@ impl<QM: QMatch> Match<QM> {
             impl Iterator<Item = QM::Item> + 's,
         ),
     > {
-        self.named_captures
-            .iter()
-            .map(move |c| (c.0.clone(), c.1, self.mat.nodes_for_capture_index((c.2 as u32).into())))
+        self.named_captures.iter().map(move |c| {
+            (
+                c.0.clone(),
+                c.1,
+                self.mat.nodes_for_capture_index((c.2 as u32).into()),
+            )
+        })
     }
 
     /// Return an iterator over all capture names.
@@ -264,17 +266,17 @@ impl<QM: QMatch> Match<QM> {
 }
 
 /// Configuration for the execution of a File
-pub struct ExecutionConfig<'a, 'g, G> {
+pub struct ExecutionConfig<'a, 'g, 'b, G> {
     pub(crate) functions: &'a Functions<G>,
-    pub(crate) globals: &'a Globals<'g>,
+    pub(crate) globals: &'b Globals<'g>,
     pub(crate) lazy: bool,
     pub(crate) location_attr: Option<Identifier>,
     pub(crate) variable_name_attr: Option<Identifier>,
     pub(crate) match_node_attr: Option<Identifier>,
 }
 
-impl<'a, 'g, G> ExecutionConfig<'a, 'g, G> {
-    pub fn new(functions: &'a Functions<G>, globals: &'a Globals<'g>) -> Self {
+impl<'a, 'g, 'b, G> ExecutionConfig<'a, 'g, 'b, G> {
+    pub fn new(functions: &'a Functions<G>, globals: &'b Globals<'g>) -> Self {
         Self {
             functions,
             globals,
@@ -330,7 +332,12 @@ impl CancellationFlag for NoCancellation {
 pub struct CancellationError(pub &'static str);
 
 impl Value {
-    pub fn from_nodes<'tree, NI: IntoIterator<Item = G::Node>, G: WithSynNodes>(
+    pub fn from_nodes<
+        'tree,
+        NI: IntoIterator<Item = W>,
+        G: WithSynNodes,
+        W: crate::graph::SyntaxNode + Into<G::SNode> + Clone,
+    >(
         graph: &mut G,
         nodes: NI,
         quantifier: CaptureQuantifier,
@@ -375,8 +382,7 @@ impl CreateEdge {
                         self.location.column + 1
                     ),
                 )
-                .map_err(|_| 
-                    ExecutionError::DuplicateAttribute(location_attr.as_str().into()))?;
+                .map_err(|_| ExecutionError::DuplicateAttribute(location_attr.as_str().into()))?;
         }
         Ok(())
     }
@@ -404,8 +410,7 @@ impl Variable {
                     location_attr.clone(),
                     format!("line {} column {}", location.row + 1, location.column + 1),
                 )
-                .map_err(|_|
-                    ExecutionError::DuplicateAttribute(location_attr.as_str().into()))?;
+                .map_err(|_| ExecutionError::DuplicateAttribute(location_attr.as_str().into()))?;
         }
         Ok(())
     }

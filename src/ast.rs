@@ -21,7 +21,7 @@ use crate::Location;
 ///
 /// NOTE needed some massages to avoid invariance over Q, see https://github.com/rust-lang/rust/issues/57440#issuecomment-466393227
 #[derive(Debug)]
-pub struct File<Q: crate::GenQuery<Lang = L>, I = u32, L = <Q as crate::GenQuery>::Lang> {
+pub struct File<Q: crate::QueryWithLang<Lang = L>, I = u32, L = <Q as crate::QueryWithLang>::Lang> {
     pub language: L,
     /// The expected global variables used in this file
     pub globals: Vec<Global>,
@@ -35,7 +35,7 @@ pub struct File<Q: crate::GenQuery<Lang = L>, I = u32, L = <Q as crate::GenQuery
     pub shorthands: AttributeShorthands,
 }
 
-impl<Q: crate::GenQuery> File<Q> {
+impl<Q: crate::QueryWithLang> File<Q> {
     pub fn new(language: Q::Lang) -> Self {
         File {
             language,
@@ -51,7 +51,7 @@ impl<Q: crate::GenQuery> File<Q> {
     pub fn as_any(self) -> Box<dyn std::any::Any + Send + Sync>
     where
         Q: 'static + Send + Sync,
-        <Q as crate::GenQuery>::Lang: Sync + Send,
+        <Q as crate::QueryWithLang>::Lang: Sync + Send,
     {
         Box::new(self)
     }
@@ -120,6 +120,24 @@ impl std::fmt::Display for Statement {
             Self::Print(stmt) => stmt.fmt(f),
             Self::If(stmt) => stmt.fmt(f),
             Self::ForIn(stmt) => stmt.fmt(f),
+        }
+    }
+}
+
+impl Statement {
+    pub fn location(&self) -> Location {
+        match self {
+            Statement::DeclareImmutable(s) => s.location,
+            Statement::DeclareMutable(s) => s.location,
+            Statement::Assign(s) => s.location,
+            Statement::CreateGraphNode(s) => s.location,
+            Statement::AddGraphNodeAttribute(s) => s.location,
+            Statement::CreateEdge(s) => s.location,
+            Statement::AddEdgeAttribute(s) => s.location,
+            Statement::Scan(s) => s.location,
+            Statement::Print(s) => s.location,
+            Statement::If(s) => s.location,
+            Statement::ForIn(s) => s.location,
         }
     }
 }

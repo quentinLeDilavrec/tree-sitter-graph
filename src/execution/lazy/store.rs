@@ -40,12 +40,12 @@ impl LazyVariable {
         Self { store_location }
     }
 
-    pub(super) fn evaluate<'a, G: Erzd>(
+    pub(super) fn evaluate<'a, G: WithSynNodes>(
         &self,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<graph::Value, ExecutionError>
     where
-        G::Original<'a>: crate::graph::WithSynNodes,
+    
     {
         exec.store.evaluate(self, exec)
     }
@@ -78,13 +78,13 @@ impl LazyStore {
         variable
     }
 
-    pub(super) fn evaluate<'a, G: Erzd>(
+    pub(super) fn evaluate<'a, G: WithSynNodes>(
         &self,
         variable: &LazyVariable,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<graph::Value, ExecutionError>
     where
-        G::Original<'a>: crate::graph::WithSynNodes,
+    
     {
         let variable = &self.elements[variable.store_location];
         let debug_info = variable.debug_info.clone();
@@ -92,12 +92,12 @@ impl LazyStore {
         Ok(value)
     }
 
-    pub(super) fn evaluate_all<'a, G: Erzd>(
+    pub(super) fn evaluate_all<'a, G: WithSynNodes>(
         &self,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
     where
-        G::Original<'a>: crate::graph::WithSynNodes,
+    
     {
         for variable in &self.elements {
             let debug_info = variable.debug_info.clone();
@@ -149,14 +149,13 @@ impl LazyScopedVariables {
         }
     }
 
-    pub(super) fn evaluate<'a, G: Erzd>(
+    pub(super) fn evaluate<'a, G: WithSynNodes>(
         &self,
         scope: &SyntaxNodeRef,
         name: &Identifier,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        G::Original<'a>: WithSynNodes,
     {
         let cell = match self.variables.get(name) {
             Some(v) => v,
@@ -176,7 +175,7 @@ impl LazyScopedVariables {
             result = Some(value.clone());
         } else if exec.inherited_variables.contains(name) {
             use crate::graph::SyntaxNode;
-            let mut parent = exec.graph.node(*scope).and_then(|n| n.parent());
+            let mut parent = exec.node(*scope).and_then(|n| n.parent());
             while let Some(scope) = parent {
                 if let Some(value) = map.get(&(scope.id() as u32)) {
                     result = Some(value.clone());
@@ -190,12 +189,12 @@ impl LazyScopedVariables {
         result.ok_or_else(|| ExecutionError::UndefinedScopedVariable(format!("{}.{}", scope, name)))
     }
 
-    pub(super) fn evaluate_all<'a, G: Erzd>(
+    pub(super) fn evaluate_all<'a, G: WithSynNodes>(
         &self,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
     where
-        G::Original<'a>: crate::graph::WithSynNodes,
+    
     {
         for (name, cell) in &self.variables {
             let values = cell.replace(ScopedValues::Forcing);
@@ -205,14 +204,14 @@ impl LazyScopedVariables {
         Ok(())
     }
 
-    fn force<'a, G: Erzd>(
+    fn force<'a, G: WithSynNodes>(
         &self,
         name: &Identifier,
         values: ScopedValues,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<HashMap<SyntaxNodeID, LazyValue>, ExecutionError>
     where
-        G::Original<'a>: crate::graph::WithSynNodes,
+    
     {
         match values {
             ScopedValues::Unforced(pairs) => {
@@ -295,12 +294,12 @@ impl Thunk {
         }
     }
 
-    fn force<'a, G: Erzd>(
+    fn force<'a, G: WithSynNodes>(
         &self,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<graph::Value, ExecutionError>
     where
-        G::Original<'a>: crate::graph::WithSynNodes,
+    
     {
         let state = self.state.replace(ThunkState::Forcing);
         trace!("force {}", state);

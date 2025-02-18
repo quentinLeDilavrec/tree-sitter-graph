@@ -38,6 +38,7 @@ pub mod parser;
 mod variables;
 
 mod generic_query;
+pub use generic_query::QueryWithLang;
 pub use generic_query::GenQuery;
 pub use generic_query::ExtendedableQuery;
 pub use generic_query::ExtendingStringQuery;

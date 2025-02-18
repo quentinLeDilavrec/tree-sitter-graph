@@ -32,14 +32,14 @@ use crate::Identifier;
 use crate::Location;
 use crate::MyTSNode;
 
-/// A graph produced by executing a graph DSL file.  Graphs include a lifetime parameter to ensure
-/// that they don't outlive the tree-sitter syntax tree that they are generated from.
-pub struct Graph<S> {
+/// A graph produced by executing a graph DSL file.  Graphs include an implicit lifetime on `S` to ensure
+/// that they don't outlive the syntax tree that they are generated from.
+pub struct Graph<S, N = GraphNode> {
     pub(crate) syntax_nodes: HashMap<SyntaxNodeID, S>,
-    graph_nodes: Vec<GraphNode>,
+    graph_nodes: Vec<N>,
 }
 
-impl<S> Default for Graph<S> {
+impl<S, N> Default for Graph<S, N> {
     fn default() -> Self {
         Self {
             syntax_nodes: Default::default(),
@@ -80,22 +80,33 @@ pub trait SyntaxNodeExt: SyntaxNode + Clone {
 pub(crate) type SyntaxNodeID = u32;
 type GraphNodeID = u32;
 
-impl<S> Graph<S> {
+impl<S, N> Graph<S, N> {
     /// Creates a new, empty graph.
     pub fn new() -> Self {
         Graph::default()
     }
 }
+pub trait WithAttrs {
+    fn attrs_mut(&mut self) -> &mut Attributes;
+    fn attrs(&self) -> &Attributes;
+}
+
+pub trait WithOutGoingEdges {
+    fn add_edge(&mut self, sink: GraphNodeRef) -> Result<&mut Edge, &mut Edge>;
+    fn get_edge_mut(&mut self, sink: GraphNodeRef) -> Option<&mut Edge>;
+}
 
 pub trait WithSynNodes:
-    LErazng + Index<GraphNodeRef, Output = GraphNode> + IndexMut<GraphNodeRef, Output = GraphNode>
+    // LErazng + 
+    Index<GraphNodeRef, Output = Self::Node> + IndexMut<GraphNodeRef, Output = Self::Node>
 {
-    type Node: SyntaxNodeExt + Clone;
-    fn node(&self, r: SyntaxNodeRef) -> Option<&Self::Node>;
+    type Node: WithAttrs + Default + WithOutGoingEdges;
+    type SNode: Clone;
+    fn node(&self, r: SyntaxNodeRef) -> Option<&Self::SNode>;
 
     /// Adds a new graph node to the graph, returning a graph DSL reference to it.
     fn add_graph_node(&mut self) -> GraphNodeRef;
-    fn add_syntax_node(&mut self, node: Self::Node) -> SyntaxNodeRef;
+    fn add_syntax_node(&mut self, node: impl SyntaxNode + Into<Self::SNode>) -> SyntaxNodeRef;
 }
 
 pub struct GraphErazing<S>(std::marker::PhantomData<S>);
@@ -127,14 +138,15 @@ impl<'tree> LErazng for MyTSNode<'tree> {
     type LErazing = TSNodeErazing;
 }
 
-impl<S: LErazng> LErazng for Graph<S> {
+impl<S: LErazng, N> LErazng for Graph<S, N> {
     type LErazing = GraphErazing<S::LErazing>;
 }
 
-impl<S: LErazng + SyntaxNodeExt + Clone> WithSynNodes for Graph<S> {
-    type Node = S;
+impl<S: Clone, N: WithAttrs + Default + WithOutGoingEdges> WithSynNodes for Graph<S, N> {
+    type Node = N;
+    type SNode = S;
 
-    fn node(&self, r: SyntaxNodeRef) -> Option<&Self::Node> {
+    fn node(&self, r: SyntaxNodeRef) -> Option<&Self::SNode> {
         self.syntax_nodes.get(&r.index)
     }
 
@@ -142,38 +154,33 @@ impl<S: LErazng + SyntaxNodeExt + Clone> WithSynNodes for Graph<S> {
         self.add_graph_node()
     }
 
-    fn add_syntax_node(&mut self, node: S) -> SyntaxNodeRef {
-        self.add_syntax_node(node)
-    }
-}
-
-pub trait QMatch {
-    type I: Copy + From<u32>;
-    type Item;
-    fn nodes_for_capture_index(&self, index: Self::I) -> impl Iterator<Item = Self::Item>;
-    fn pattern_index(&self) -> usize;
-}
-
-impl<S: SyntaxNodeExt> Graph<S> {
-    /// Adds a syntax node to the graph, returning a graph DSL reference to it.
-    ///
-    /// The graph won't contain _every_ syntax node in the parsed syntax tree; it will only contain
-    /// those nodes that are referenced at some point during the execution of the graph DSL file.
-    pub fn add_syntax_node(&mut self, node: S) -> SyntaxNodeRef {
+    fn add_syntax_node(&mut self, node: impl SyntaxNode + Into<Self::SNode>) -> SyntaxNodeRef {
         let index = node.id() as SyntaxNodeID;
-        let index = index as SyntaxNodeID;
         let node_ref = SyntaxNodeRef {
             index,
             kind: node.kind(),
             position: node.start_position(),
         };
-        self.syntax_nodes.entry(index).or_insert(node);
+        self.syntax_nodes.entry(index).or_insert(node.into());
         node_ref
     }
+}
 
+pub trait QMatch {
+    type I: Copy + From<u32>;
+    // todo rename into Node
+    type Item: SyntaxNode + Clone + Into<Self::Simple>;
+    type Simple: Clone;
+    fn nodes_for_capture_index(&self, index: Self::I) -> impl Iterator<Item = Self::Item>;
+    fn pattern_index(&self) -> usize;
+    fn syn_node_ref(&self, node: &Self::Item) -> SyntaxNodeRef;
+    fn node(&self, s: Self::Simple) -> Self::Item { todo!() }
+}
+
+impl<S, N: Default> Graph<S, N> {
     /// Adds a new graph node to the graph, returning a graph DSL reference to it.
     pub fn add_graph_node(&mut self) -> GraphNodeRef {
-        let graph_node = GraphNode::new();
+        let graph_node = N::default();
         let index = self.graph_nodes.len() as GraphNodeID;
         self.graph_nodes.push(graph_node);
         GraphNodeRef(index)
@@ -187,6 +194,23 @@ impl<S: SyntaxNodeExt> Graph<S> {
     // Returns the number of nodes in the graph.
     pub fn node_count(&self) -> usize {
         self.graph_nodes.len()
+    }
+}
+
+impl<S: SyntaxNode, N: Default> Graph<S, N> {
+    /// Adds a syntax node to the graph, returning a graph DSL reference to it.
+    ///
+    /// The graph won't contain _every_ syntax node in the parsed syntax tree; it will only contain
+    /// those nodes that are referenced at some point during the execution of the graph DSL file.
+    pub fn add_syntax_node(&mut self, node: S) -> SyntaxNodeRef {
+        let index = node.id() as SyntaxNodeID;
+        let node_ref = SyntaxNodeRef {
+            index,
+            kind: node.kind(),
+            position: node.start_position(),
+        };
+        self.syntax_nodes.entry(index).or_insert(node);
+        node_ref
     }
 }
 
@@ -225,31 +249,38 @@ impl<'tree, S> Graph<S> {
     }
 }
 
-impl<S> Index<SyntaxNodeRef> for Graph<S> {
+impl<S, N> Index<SyntaxNodeRef> for Graph<S, N> {
     type Output = S;
     fn index(&self, node_ref: SyntaxNodeRef) -> &S {
         &self.syntax_nodes[&node_ref.index]
     }
 }
 
-impl<S> Index<GraphNodeRef> for Graph<S> {
-    type Output = GraphNode;
-    fn index(&self, index: GraphNodeRef) -> &GraphNode {
+impl<S, N> Index<GraphNodeRef> for Graph<S, N> {
+    type Output = N;
+    fn index(&self, index: GraphNodeRef) -> &N {
         &self.graph_nodes[index.0 as usize]
     }
 }
 
-impl<S> IndexMut<GraphNodeRef> for Graph<S> {
-    fn index_mut(&mut self, index: GraphNodeRef) -> &mut GraphNode {
+impl<S, N> IndexMut<GraphNodeRef> for Graph<S, N> {
+    fn index_mut(&mut self, index: GraphNodeRef) -> &mut N {
         &mut self.graph_nodes[index.0 as usize]
     }
 }
 
-impl<N> Serialize for Graph<N> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+trait IntoGraphSerialize: Sized {
+    fn with_graph<S>(g: Graph<S, Self>) -> impl Serialize;
+}
+trait IntoIndexedSerialize {
+    fn with_index(&self, i: usize) -> impl Serialize;
+}
+
+impl<S, N: IntoIndexedSerialize> Serialize for Graph<S, N> {
+    fn serialize<Ser: Serializer>(&self, serializer: Ser) -> Result<Ser::Ok, Ser::Error> {
         let mut seq = serializer.serialize_seq(Some(self.graph_nodes.len()))?;
         for (node_index, node) in self.graph_nodes.iter().enumerate() {
-            seq.serialize_element(&SerializeGraphNode(node_index, node))?;
+            seq.serialize_element(&node.with_index(node_index))?;
         }
         seq.end()
     }
@@ -315,6 +346,38 @@ impl GraphNode {
     // Returns the number of outgoing edges from this node.
     pub fn edge_count(&self) -> usize {
         self.outgoing_edges.len()
+    }
+}
+
+impl Default for GraphNode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl IntoIndexedSerialize for GraphNode {
+    fn with_index(&self, i: usize) -> impl Serialize {
+        SerializeGraphNode(i, self)
+    }
+}
+
+impl WithAttrs for GraphNode {
+    fn attrs_mut(&mut self) -> &mut Attributes {
+        &mut self.attributes
+    }
+
+    fn attrs(&self) -> &Attributes {
+        &self.attributes
+    }
+}
+
+impl WithOutGoingEdges for GraphNode {
+    fn add_edge(&mut self, sink: GraphNodeRef) -> Result<&mut Edge, &mut Edge> {
+        self.add_edge(sink)
+    }
+
+    fn get_edge_mut(&mut self, sink: GraphNodeRef) -> Option<&mut Edge> {
+        self.get_edge_mut(sink)
     }
 }
 
@@ -553,18 +616,6 @@ impl Value {
         }
     }
 
-    /// Coerces this value into a syntax node, returning an error if it's some other type
-    /// of value.
-    #[deprecated(note = "Use the pattern graph[value.into_syntax_node_ref(graph)] instead")]
-    pub fn into_syntax_node<'a, S: LErazng + SyntaxNodeExt>(
-        self,
-        graph: &'a Graph<S>,
-    ) -> Result<&'a S, ExecutionError> {
-        graph
-            .node(self.into_syntax_node_ref()?)
-            .ok_or_else(|| todo!())
-    }
-
     pub fn as_syntax_node_ref<'a, 'tree>(&self) -> Result<SyntaxNodeRef, ExecutionError> {
         match self {
             Value::SyntaxNode(node) => Ok(*node),
@@ -759,6 +810,17 @@ pub struct SyntaxNodeRef {
     pub(crate) index: SyntaxNodeID,
     kind: &'static str,
     position: tree_sitter::Point,
+}
+
+impl SyntaxNodeRef {
+    pub fn new<T: SyntaxNode>(node: &T) -> Self {
+        let index = node.id() as SyntaxNodeID;
+        SyntaxNodeRef {
+            index,
+            kind: node.kind(),
+            position: node.start_position(),
+        }
+    }
 }
 
 impl From<tree_sitter::Point> for Location {

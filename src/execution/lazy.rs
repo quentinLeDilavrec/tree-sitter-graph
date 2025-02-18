@@ -31,9 +31,11 @@ use crate::graph::Erzd;
 use crate::graph::Graph;
 use crate::graph::GraphErazing;
 use crate::graph::QMatch;
+use crate::graph::SyntaxNode;
 use crate::graph::SyntaxNodeExt;
 use crate::graph::TSNodeErazing;
 use crate::graph::Value;
+use crate::graph::WithAttrs as _;
 use crate::graph::WithSynNodes;
 use crate::variables::Globals;
 use crate::variables::MutVariables;
@@ -72,16 +74,13 @@ impl<'a> Ctx<'a> {
         self.locals.clear()
     }
 
-    pub fn eval<'tree, G: Erzd>(
+    pub fn eval<'tree, G: WithSynNodes>(
         &mut self,
-        graph: &mut G::Original<'tree>,
+        graph: &mut G,
         functions: &Functions<G>,
         inherited_variables: &HashSet<Identifier>,
         cancellation_flag: &dyn CancellationFlag,
-    ) -> Result<(), ExecutionError>
-    where
-        G::Original<'tree>: WithSynNodes,
-    {
+    ) -> Result<(), ExecutionError> {
         let mut exec = EvaluationContext {
             graph,
             functions,
@@ -100,41 +99,54 @@ impl<'a> Ctx<'a> {
         Ok(())
     }
 
-    pub fn exec<'tree, 'g, 'cursor, G: WithSynNodes>(
+    pub fn exec<'tree, 'g, 'cursor, 'b, 'c, 'd, 'e, 'f, G, QM, I, Item>(
         &mut self,
-        graph: &mut G,
+        graph: &'e mut G,
         inherited_variables: &HashSet<Identifier>,
         cancellation_flag: &dyn CancellationFlag,
-        full_match_file_capture_index: <<G::Node as SyntaxNodeExt>::QM<'cursor> as QMatch>::I,
+        full_match_file_capture_index: I,
         shorthands: &crate::ast::AttributeShorthands,
-        mat: &<G::Node as SyntaxNodeExt>::QM<'cursor>,
-        config: &mut crate::ExecutionConfig<'_, 'g, G::LErazing>,
+        mat: &'b QM,
+        config: &'c mut crate::ExecutionConfig<'d, 'g, 'f, G>,
         current_regex_captures: &Vec<String>,
         statement: &crate::ast::Statement,
         error_context: crate::execution::error::StatementContext,
     ) -> Result<(), ExecutionError>
     where
-        G::LErazing: Erzd<Original<'tree> = G>,
+        G: WithSynNodes,
+        Item: Clone,
+        Item: SyntaxNode,
+        Item: SyntaxNodeExt,
+        QM: QMatch<I = I, Item = Item>,
+        // QM::Item: Into<G::SNode>,
     {
-        let mut exec = ExecutionContext {
-            graph,
-            config,
-            locals: &mut self.locals,
-            current_regex_captures,
-            mat,
-            full_match_file_capture_index,
-            store: &mut self.store,
-            scoped_store: &mut self.scoped_store,
-            lazy_graph: &mut self.lazy_graph,
-            function_parameters: &mut self.function_parameters,
-            prev_element_debug_info: &mut self.prev_element_debug_info,
-            error_context,
-            inherited_variables,
-            shorthands,
-            cancellation_flag,
-        };
-        statement.execute_lazy(&mut exec)
+        todo!()
+        // let mut exec = ExecutionContext {
+        //     graph,
+        //     config,
+        //     locals: &mut self.locals,
+        //     current_regex_captures,
+        //     mat,
+        //     full_match_file_capture_index,
+        //     store: &mut self.store,
+        //     scoped_store: &mut self.scoped_store,
+        //     lazy_graph: &mut self.lazy_graph,
+        //     function_parameters: &mut self.function_parameters,
+        //     prev_element_debug_info: &mut self.prev_element_debug_info,
+        //     error_context,
+        //     inherited_variables,
+        //     shorthands,
+        //     cancellation_flag,
+        // };
+        // statement.execute_lazy(&mut exec)
     }
+}
+
+pub trait QQMatch {
+    type I;
+    type Item;
+    // fn nodes_for_capture_index(&self, index: Self::I) -> impl Iterator<Item = Self::Item>;
+    // fn pattern_index(&self) -> usize;
 }
 
 impl ast::File<Query> {
@@ -148,7 +160,7 @@ impl ast::File<Query> {
         graph: &mut Graph<MyTSNode<'tree>>,
         tree: &'tree Tree,
         source: &'tree str,
-        config: &ExecutionConfig<graph::GraphErazing<graph::TSNodeErazing>>,
+        config: &ExecutionConfig<Graph<MyTSNode<'tree>>>,
         cancellation_flag: &dyn CancellationFlag,
     ) -> Result<(), ExecutionError> {
         let mut globals = Globals::nested(config.globals);
@@ -234,20 +246,24 @@ impl<Q: GenQuery, I: Copy> ast::File<Q, I> {
     /// text that it was parsed from (`source`).  You also provide the set of functions and global
     /// variables that are available during execution. This variant is useful when you need to
     /// “pre-seed” the graph with some predefined nodes and/or edges before executing the DSL file.
-    pub fn execute_lazy_into2<'c, 'tree: 'c, G: WithSynNodes>(
+    pub fn execute_lazy_into2<'c, 'tree: 'c, G, N, QM>(
         &self,
         graph: &mut G,
-        tree: Q::Node<'tree>,
-        config: &ExecutionConfig<G::LErazing>,
+        tree: N,
+        config: &ExecutionConfig<G>,
         cancellation_flag: &dyn CancellationFlag,
     ) -> Result<(), ExecutionError>
     where
-        Q: GenQuery<I = I> + 'tree,
-        Q::Node<'tree>: SyntaxNodeExt<QM<'c> = Q::Match<'c, 'tree>>,
-        Q::Match<'c, 'tree>: QMatch<Item = Q::Node<'tree>, I = I>,
-        G: WithSynNodes<Node = Q::Node<'tree>>,
-        G::LErazing: Erzd<Original<'tree> = G>,
+        Q: 'c + GenQuery<I = I, Match<'c, 'tree> = QM, Node<'tree> = N>, // + 'tree,
+        N: 'c + SyntaxNodeExt<QM<'c> = QM>,
+        QM::Item: Into<G::SNode>,
+        G: WithSynNodes,
+        QM::Item: SyntaxNode,
+        QM::Item: Into<G::SNode>,
+        G: WithSynNodes,
+        QM: QMatch<I = I, Item = N>,
     {
+        // todo!("sane generalization")
         let mut globals = Globals::nested(config.globals);
         self.check_globals(&mut globals)?;
         let mut config = ExecutionConfig {
@@ -270,8 +286,10 @@ impl<Q: GenQuery, I: Copy> ast::File<Q, I> {
         let query = self.query.as_ref().unwrap();
         let cursor: &mut Q::Cursor = &mut cursor;
         let cursor = unsafe { std::mem::transmute(cursor) };
+        dbg!();
         let matches: Q::Matches<'_, '_, 'tree> = query.matches(cursor, &tree);
         for mat in matches {
+            dbg!();
             cancellation_flag.check("processing matches")?;
             let stanza = &self.stanzas[mat.pattern_index()];
             // SAFETY: should be ok, just circumventing the associated lifetime limitations (assumed static)
@@ -292,6 +310,7 @@ impl<Q: GenQuery, I: Copy> ast::File<Q, I> {
                 &self.shorthands,
                 cancellation_flag,
             )?;
+            dbg!();
         }
         let mut exec = EvaluationContext {
             graph,
@@ -303,19 +322,21 @@ impl<Q: GenQuery, I: Copy> ast::File<Q, I> {
             prev_element_debug_info: &mut prev_element_debug_info,
             cancellation_flag,
         };
+        dbg!();
         lazy_graph.evaluate(&mut exec)?;
         // make sure any unforced values are now forced, to surface any problems
         // hidden by the fact that the values were unused
         store.evaluate_all(&mut exec)?;
         scoped_store.evaluate_all(&mut exec)?;
+        dbg!();
         Ok(())
     }
 }
 
 /// Context for execution, which executes stanzas to build the lazy graph
-struct ExecutionContext<'a, 'c, 'g, G: WithSynNodes, QM: QMatch, I = <QM as QMatch>::I> {
+struct ExecutionContext<'a, 'c, 'g, 'd, G: WithSynNodes, QM: QMatch, I = <QM as QMatch>::I> {
     graph: &'a mut G,
-    config: &'a ExecutionConfig<'c, 'g, G::LErazing>,
+    config: &'a ExecutionConfig<'c, 'g, 'd, G>,
     locals: &'a mut dyn MutVariables<LazyValue>,
     current_regex_captures: &'a Vec<String>,
     mat: &'a QM,
@@ -332,8 +353,8 @@ struct ExecutionContext<'a, 'c, 'g, G: WithSynNodes, QM: QMatch, I = <QM as QMat
 }
 
 /// Context for evaluation, which evalautes the lazy graph to build the actual graph
-pub(self) struct EvaluationContext<'a, 'tree, G: Erzd = GraphErazing<TSNodeErazing>> {
-    pub graph: &'a mut G::Original<'tree>,
+pub(self) struct EvaluationContext<'a, G> {
+    pub graph: &'a mut G,
     pub functions: &'a Functions<G>,
     pub store: &'a LazyStore,
     pub scoped_store: &'a LazyScopedVariables,
@@ -341,6 +362,15 @@ pub(self) struct EvaluationContext<'a, 'tree, G: Erzd = GraphErazing<TSNodeErazi
     pub function_parameters: &'a mut Vec<graph::Value>, // re-usable buffer to reduce memory allocations
     pub prev_element_debug_info: &'a mut HashMap<GraphElementKey, DebugInfo>,
     pub cancellation_flag: &'a dyn CancellationFlag,
+}
+impl<'a, G: WithSynNodes> EvaluationContext<'a, G> {
+    fn node2(&self, scope: graph::SyntaxNodeRef) -> Option<G::SNode> {
+        todo!("sane generalization")
+    }
+    fn node(&self, scope: graph::SyntaxNodeRef) -> Option<impl SyntaxNode> {
+        todo!("sane generalization");
+        None::<MyTSNode>
+    }
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -355,7 +385,7 @@ impl ast::Stanza<Query> {
         source: &'tree str,
         mat: &MyQueryMatch<'_, 'tree>,
         graph: &mut Graph<MyTSNode<'tree>>,
-        config: &ExecutionConfig<graph::GraphErazing<graph::TSNodeErazing>>,
+        config: &ExecutionConfig<Graph<MyTSNode<'tree>>>,
         locals: &mut VariableMap<'l, LazyValue>,
         store: &mut LazyStore,
         scoped_store: &mut LazyScopedVariables,
@@ -403,11 +433,11 @@ impl ast::Stanza<Query> {
 }
 
 impl<Q, I: Copy> ast::Stanza<Q, I> {
-    fn execute_lazy2<'a, 'g, 'l, 's, 'c, 'tree: 'a + 'c, G>(
+    fn execute_lazy2<'a, 'g, 'l, 's, 'c, 'd, 'tree: 'a + 'c, G, QM>(
         &self,
-        mat: &Q::Match<'c, 'tree>,
+        mat: &QM,
         graph: &mut G,
-        config: &ExecutionConfig<'a, 'g, G::LErazing>,
+        config: &ExecutionConfig<'a, 'g, 'd, G>,
         locals: &mut VariableMap<'l, LazyValue>,
         store: &mut LazyStore,
         scoped_store: &mut LazyScopedVariables,
@@ -419,21 +449,26 @@ impl<Q, I: Copy> ast::Stanza<Q, I> {
         cancellation_flag: &dyn CancellationFlag,
     ) -> Result<(), ExecutionError>
     where
-        Q: GenQuery<I = I>,
-        Q::Node<'tree>: SyntaxNodeExt<QM<'c> = Q::Match<'c, 'tree>>,
-        Q::Match<'c, 'tree>: QMatch<Item = Q::Node<'tree>, I = I>,
-        G: WithSynNodes<Node = Q::Node<'tree>>,
-        G::LErazing: Erzd<Original<'tree> = G>,
+        G: WithSynNodes,
+        Q: GenQuery, //<I = I>,
+        // Q::Node<'tree>: 'c + SyntaxNodeExt<QM<'c> = QM>,
+        QM: 'c + QMatch<I = I>,
+        QM::Item: SyntaxNode,
+        QM::Item: Into<G::SNode>,
+        Q: GenQuery, //<I = I>,
     {
         let current_regex_captures = vec![];
         locals.clear();
-        let node: Q::Node<'tree> = mat
+        dbg!();
+        let node: QM::Item = mat
             .nodes_for_capture_index(self.full_match_file_capture_index)
             .next()
             .expect("missing capture for full match");
         // debug!("match {:?} at {}", node, self.range.start);
         trace!("{{");
+        dbg!();
         for statement in &self.statements {
+            dbg!();
             let error_context = { StatementContext::new(&statement, &self, &node) };
             let mut exec = ExecutionContext {
                 graph,
@@ -455,6 +490,7 @@ impl<Q, I: Copy> ast::Stanza<Q, I> {
             statement
                 .execute_lazy(&mut exec)
                 .with_context(|| exec.error_context.into())?;
+            dbg!();
         }
         trace!("}}");
         Ok(())
@@ -462,14 +498,12 @@ impl<Q, I: Copy> ast::Stanza<Q, I> {
 }
 
 impl ast::Statement {
-    fn execute_lazy<'a, 'b, G: WithSynNodes, QM: QMatch, I>(
+    fn execute_lazy<'a, 'b, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, QM, I>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
-        G::Node: 'b + SyntaxNodeExt<QM<'b> = QM>,
-        QM: QMatch<I = I>,
+        QM::Item: Into<G::SNode>,
     {
         exec.cancellation_flag.check("executing statement")?;
         match self {
@@ -489,12 +523,12 @@ impl ast::Statement {
 }
 
 impl ast::DeclareImmutable {
-    fn execute_lazy<'a, G: WithSynNodes>(
+    fn execute_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         let value = self.value.evaluate_lazy(exec)?;
         self.variable.add_lazy(exec, value, false)
@@ -502,12 +536,12 @@ impl ast::DeclareImmutable {
 }
 
 impl ast::DeclareMutable {
-    fn execute_lazy<'a, G: WithSynNodes>(
+    fn execute_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         let value = self.value.evaluate_lazy(exec)?;
         self.variable.add_lazy(exec, value, true)
@@ -515,12 +549,12 @@ impl ast::DeclareMutable {
 }
 
 impl ast::Assign {
-    fn execute_lazy<'a, G: WithSynNodes>(
+    fn execute_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         let value = self.value.evaluate_lazy(exec)?;
         self.variable.set_lazy(exec, value)
@@ -528,25 +562,29 @@ impl ast::Assign {
 }
 
 impl ast::CreateGraphNode {
-    fn execute_lazy<'a, G: WithSynNodes>(
+    fn execute_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
+        dbg!();
         let graph_node = exec.graph.add_graph_node();
         self.node
-            .add_debug_attrs(&mut exec.graph[graph_node].attributes, exec.config)?;
+            .add_debug_attrs(&mut exec.graph[graph_node].attrs_mut(), exec.config)?;
+        dbg!();
         if let Some(match_node_attr) = &exec.config.match_node_attr {
-            let match_node = exec
+            let node = exec
                 .mat
                 .nodes_for_capture_index(exec.full_match_file_capture_index)
                 .next()
                 .expect("missing capture for full match");
-            let syn_node = exec.graph.add_syntax_node(match_node);
+            dbg!();
+            let syn_node = exec.graph.add_syntax_node(node);
+            dbg!();
             exec.graph[graph_node]
-                .attributes
+                .attrs_mut()
                 .add(match_node_attr.clone(), syn_node)
                 .map_err(|_| {
                     ExecutionError::DuplicateAttribute(format!(
@@ -555,17 +593,18 @@ impl ast::CreateGraphNode {
                     ))
                 })?;
         }
+        dbg!();
         self.node.add_lazy(exec, graph_node.into(), false)
     }
 }
 
 impl ast::AddGraphNodeAttribute {
-    fn execute_lazy<'a, G: WithSynNodes>(
+    fn execute_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         let node = self.node.evaluate_lazy(exec)?;
         let mut attributes = Vec::new();
@@ -581,12 +620,12 @@ impl ast::AddGraphNodeAttribute {
 }
 
 impl ast::CreateEdge {
-    fn execute_lazy<'a, G: WithSynNodes>(
+    fn execute_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         let source = self.source.evaluate_lazy(exec)?;
         let sink = self.sink.evaluate_lazy(exec)?;
@@ -599,12 +638,12 @@ impl ast::CreateEdge {
 }
 
 impl ast::AddEdgeAttribute {
-    fn execute_lazy<'a, G: WithSynNodes>(
+    fn execute_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         let source = self.source.evaluate_lazy(exec)?;
         let sink = self.sink.evaluate_lazy(exec)?;
@@ -621,12 +660,12 @@ impl ast::AddEdgeAttribute {
 }
 
 impl ast::Scan {
-    fn execute_lazy<'a, G: WithSynNodes>(
+    fn execute_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         let match_string = self.value.evaluate_eager(exec)?.into_string()?;
 
@@ -713,12 +752,12 @@ impl ast::Scan {
 }
 
 impl ast::Print {
-    fn execute_lazy<'a, G: WithSynNodes>(
+    fn execute_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         let mut arguments = Vec::new();
         for value in &self.values {
@@ -736,12 +775,12 @@ impl ast::Print {
 }
 
 impl ast::If {
-    fn execute_lazy<'a, G: WithSynNodes>(
+    fn execute_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         for arm in &self.arms {
             let mut result = true;
@@ -782,12 +821,12 @@ impl ast::If {
 impl ast::Condition {
     // Eagerly evaluate the condition to a boolean. It assumes the argument expressions
     // are local (i.e., `is_local = true` in the checker).
-    fn test_eager<'a, G: WithSynNodes>(
+    fn test_eager<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<bool, ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         match self {
             Self::Some { value, .. } => Ok(!value.evaluate_eager(exec)?.is_null()),
@@ -798,12 +837,12 @@ impl ast::Condition {
 }
 
 impl ast::ForIn {
-    fn execute_lazy<'a, G: WithSynNodes>(
+    fn execute_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         let values = self.value.evaluate_eager(exec)?.into_list()?;
         let mut loop_locals = VariableMap::nested(exec.locals);
@@ -839,12 +878,12 @@ impl ast::ForIn {
 }
 
 impl ast::Expression {
-    fn evaluate_lazy<'a, G: WithSynNodes>(
+    fn evaluate_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         match self {
             Self::FalseLiteral => Ok(false.into()),
@@ -865,51 +904,52 @@ impl ast::Expression {
 
     // Eagerly evaluate the expression to a `Value`, instead of a `LazyValue`. This method should
     // only be called on expressions that are local (i.e., `is_local = true` in the checker).
-    fn evaluate_eager<'a, G: WithSynNodes>(
+    fn evaluate_eager<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<graph::Value, ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
-        self.evaluate_lazy(exec)?.evaluate(&mut EvaluationContext {
-            graph: exec.graph,
-            functions: exec.config.functions,
-            store: exec.store,
-            scoped_store: exec.scoped_store,
-            inherited_variables: exec.inherited_variables,
-            function_parameters: exec.function_parameters,
-            prev_element_debug_info: exec.prev_element_debug_info,
-            cancellation_flag: exec.cancellation_flag,
-        })
+        todo!("remove problematic bounds")
+        // self.evaluate_lazy(exec)?.evaluate(&mut EvaluationContext {
+        //     graph: exec.graph,
+        //     functions: exec.config.functions,
+        //     store: exec.store,
+        //     scoped_store: exec.scoped_store,
+        //     inherited_variables: exec.inherited_variables,
+        //     function_parameters: exec.function_parameters,
+        //     prev_element_debug_info: exec.prev_element_debug_info,
+        //     cancellation_flag: exec.cancellation_flag,
+        // })
     }
 }
 
 impl ast::IntegerConstant {
-    fn evaluate_lazy<'a, G: WithSynNodes>(
+    fn evaluate_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        _exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        _exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError> {
         Ok(self.value.into())
     }
 }
 
 impl ast::StringConstant {
-    fn evaluate_lazy<'a, G: WithSynNodes>(
+    fn evaluate_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        _exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        _exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError> {
         Ok(self.value.clone().into())
     }
 }
 
 impl ast::ListLiteral {
-    fn evaluate_lazy<'a, G: WithSynNodes>(
+    fn evaluate_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         let mut elements = Vec::new();
         for element in &self.elements {
@@ -920,12 +960,12 @@ impl ast::ListLiteral {
 }
 
 impl ast::ListComprehension {
-    fn evaluate_lazy<'a, G: WithSynNodes>(
+    fn evaluate_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         let values = self.value.evaluate_eager(exec)?.into_list()?;
         let mut elements = Vec::new();
@@ -959,12 +999,12 @@ impl ast::ListComprehension {
 }
 
 impl ast::SetLiteral {
-    fn evaluate_lazy<'a, G: WithSynNodes>(
+    fn evaluate_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         let mut elements = Vec::new();
         for element in &self.elements {
@@ -975,12 +1015,12 @@ impl ast::SetLiteral {
 }
 
 impl ast::SetComprehension {
-    fn evaluate_lazy<'a, G: WithSynNodes>(
+    fn evaluate_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         let values = self.value.evaluate_eager(exec)?.into_list()?;
         let mut elements = Vec::new();
@@ -1014,17 +1054,17 @@ impl ast::SetComprehension {
 }
 
 impl ast::Capture {
-    fn evaluate_lazy<'a, G: WithSynNodes>(
+    fn evaluate_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
+        let mat = &exec.mat;
         Ok(Value::from_nodes(
             exec.graph,
-            exec.mat
-                .nodes_for_capture_index((self.file_capture_index as u32).into()),
+            mat.nodes_for_capture_index((self.file_capture_index as u32).into()),
             self.quantifier,
         )
         .into())
@@ -1032,12 +1072,12 @@ impl ast::Capture {
 }
 
 impl ast::Call {
-    fn evaluate_lazy<'a, G: WithSynNodes>(
+    fn evaluate_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         let mut parameters = Vec::new();
         for parameter in &self.parameters {
@@ -1048,9 +1088,9 @@ impl ast::Call {
 }
 
 impl ast::RegexCapture {
-    fn evaluate_lazy<'a, G: WithSynNodes>(
+    fn evaluate_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError> {
         let value = exec.current_regex_captures[self.match_index].clone();
         Ok(value.into())
@@ -1058,12 +1098,12 @@ impl ast::RegexCapture {
 }
 
 impl ast::Variable {
-    fn evaluate_lazy<'a, G: WithSynNodes>(
+    fn evaluate_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         match self {
             Self::Scoped(variable) => variable.evaluate_lazy(exec),
@@ -1073,14 +1113,14 @@ impl ast::Variable {
 }
 
 impl ast::Variable {
-    fn add_lazy<'a, G: WithSynNodes>(
+    fn add_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
         value: LazyValue,
         mutable: bool,
     ) -> Result<(), ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         match self {
             Self::Scoped(variable) => variable.add_lazy(exec, value, mutable),
@@ -1088,9 +1128,9 @@ impl ast::Variable {
         }
     }
 
-    fn set_lazy<G: WithSynNodes>(
+    fn set_lazy<G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
         value: LazyValue,
     ) -> Result<(), ExecutionError> {
         match self {
@@ -1101,26 +1141,26 @@ impl ast::Variable {
 }
 
 impl ast::ScopedVariable {
-    fn evaluate_lazy<'a, G: WithSynNodes>(
+    fn evaluate_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         let scope = self.scope.evaluate_lazy(exec)?;
         let value = LazyScopedVariable::new(scope, self.name.clone());
         Ok(value.into())
     }
 
-    fn add_lazy<'a, G: WithSynNodes>(
+    fn add_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
         value: LazyValue,
         mutable: bool,
     ) -> Result<(), ExecutionError>
     where
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         if mutable {
             return Err(ExecutionError::CannotDefineMutableScopedVariable(format!(
@@ -1138,9 +1178,9 @@ impl ast::ScopedVariable {
         )
     }
 
-    fn set_lazy<G: WithSynNodes>(
+    fn set_lazy<G: WithSynNodes, QM: QMatch>(
         &self,
-        _exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        _exec: &mut ExecutionContext<G, QM>,
         _value: LazyValue,
     ) -> Result<(), ExecutionError> {
         Err(ExecutionError::CannotAssignScopedVariable(format!(
@@ -1151,9 +1191,9 @@ impl ast::ScopedVariable {
 }
 
 impl ast::UnscopedVariable {
-    fn evaluate_lazy<'a, G: WithSynNodes>(
+    fn evaluate_lazy<'a, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError> {
         if let Some(value) = exec.config.globals.get(&self.name) {
             Some(value.clone().into())
@@ -1165,9 +1205,9 @@ impl ast::UnscopedVariable {
 }
 
 impl ast::UnscopedVariable {
-    fn add_lazy<G: WithSynNodes>(
+    fn add_lazy<G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
         value: LazyValue,
         mutable: bool,
     ) -> Result<(), ExecutionError> {
@@ -1183,9 +1223,9 @@ impl ast::UnscopedVariable {
             .map_err(|_| ExecutionError::DuplicateVariable(format!(" local {}", self)))
     }
 
-    fn set_lazy<G: WithSynNodes>(
+    fn set_lazy<G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
         value: LazyValue,
     ) -> Result<(), ExecutionError> {
         if exec.config.globals.get(&self.name).is_some() {
@@ -1208,14 +1248,14 @@ impl ast::UnscopedVariable {
 }
 
 impl ast::Attribute {
-    fn execute_lazy<'a, F, G: WithSynNodes>(
+    fn execute_lazy<'a, F, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
         add_attribute: &mut F,
     ) -> Result<(), ExecutionError>
     where
         F: FnMut(LazyAttribute) -> (),
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         exec.cancellation_flag.check("executing attribute")?;
         let value = self.value.evaluate_lazy(exec)?;
@@ -1229,15 +1269,15 @@ impl ast::Attribute {
 }
 
 impl ast::AttributeShorthand {
-    fn execute_lazy<'a, F, G: WithSynNodes>(
+    fn execute_lazy<'a, F, G: WithSynNodes, QM: QMatch>(
         &self,
-        exec: &mut ExecutionContext<G, <G::Node as SyntaxNodeExt>::QM<'_>>,
+        exec: &mut ExecutionContext<G, QM>,
         add_attribute: &mut F,
         value: LazyValue,
     ) -> Result<(), ExecutionError>
     where
         F: FnMut(LazyAttribute) -> (),
-        G::LErazing: graph::Erzd<Original<'a> = G>,
+        QM::Item: Into<G::SNode>,
     {
         let mut shorthand_locals = VariableMap::new();
         let mut shorthand_exec = ExecutionContext {

@@ -75,8 +75,11 @@ mod ts {
         }
     }
 
-    impl GenQuery for Query {
+    impl QueryWithLang for Query {
         type Lang = Language;
+    }
+
+    impl GenQuery for Query {
         type Ext = ExtendingStringQuery;
 
         fn pattern_count(&self) -> usize {
@@ -87,7 +90,10 @@ mod ts {
             self.capture_index_for_name(name)
         }
 
-        fn capture_quantifiers(&self, index: usize) -> impl std::ops::Index<usize, Output=CaptureQuantifier> {
+        fn capture_quantifiers(
+            &self,
+            index: usize,
+        ) -> impl std::ops::Index<usize, Output = CaptureQuantifier> {
             struct A([tree_sitter::CaptureQuantifier]);
             impl std::ops::Index<usize> for &A {
                 type Output = tree_sitter::CaptureQuantifier;
@@ -127,7 +133,10 @@ mod ts {
         ) -> Self::Matches<'query, 'cursor, 'tree> {
             // let matches = cursor.matches(self, node, source.as_bytes());
             let matches = cursor.matches(self, node.node, node.source.as_bytes());
-            MyQM { qm: matches, source: node.source }
+            MyQM {
+                qm: matches,
+                source: node.source,
+            }
         }
 
         type Match<'cursor, 'tree: 'cursor> = MyQueryMatch<'cursor, 'tree>;
@@ -144,7 +153,9 @@ pub struct MyTSNode<'tree> {
 
 impl<'tree> std::fmt::Debug for MyTSNode<'tree> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MyTSNode").field("node", &self.node).finish()
+        f.debug_struct("MyTSNode")
+            .field("node", &self.node)
+            .finish()
     }
 }
 
@@ -238,7 +249,9 @@ pub struct MyQueryMatch<'cursor, 'tree> {
 }
 impl<'cursor, 'tree> std::fmt::Debug for MyQueryMatch<'cursor, 'tree> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MyTSQueryMatch").field("mat", &self.mat).finish()
+        f.debug_struct("MyTSQueryMatch")
+            .field("mat", &self.mat)
+            .finish()
     }
 }
 
@@ -255,6 +268,8 @@ impl<'cursor, 'tree> crate::graph::QMatch for MyQueryMatch<'cursor, 'tree> {
 
     type Item = MyTSNode<'tree>;
 
+    type Simple = MyTSNode<'tree>;
+
     fn nodes_for_capture_index(&self, index: Self::I) -> impl Iterator<Item = Self::Item> {
         self.mat
             .nodes_for_capture_index(index)
@@ -265,6 +280,10 @@ impl<'cursor, 'tree> crate::graph::QMatch for MyQueryMatch<'cursor, 'tree> {
     }
     fn pattern_index(&self) -> usize {
         self.mat.pattern_index
+    }
+
+    fn syn_node_ref(&self, node: &Self::Item) -> crate::graph::SyntaxNodeRef {
+        crate::graph::SyntaxNodeRef::new(node)
     }
 }
 
@@ -290,16 +309,25 @@ impl<'query, 'cursor: 'query, 'tree: 'cursor + 'query> Iterator for MyQM<'query,
         // TODO is there a bug in tree_sitter::QueryMatches::next ?
         // the lifetime names are not matching
         let m = unsafe { std::mem::transmute(m) };
-        Some(MyQueryMatch {mat: m, source: self.source})
+        Some(MyQueryMatch {
+            mat: m,
+            source: self.source,
+        })
     }
 }
 
-pub trait GenQuery {
+pub trait QueryWithLang {
     type Lang;
+}
+
+pub trait GenQuery: QueryWithLang {
     type Ext: ExtendedableQuery<Query = Self, Lang = Self::Lang>;
     fn pattern_count(&self) -> usize;
     fn capture_index_for_name(&self, name: &str) -> Option<u32>;
-    fn capture_quantifiers(&self, index: usize) -> impl std::ops::Index<usize, Output=CaptureQuantifier>;
+    fn capture_quantifiers(
+        &self,
+        index: usize,
+    ) -> impl std::ops::Index<usize, Output = CaptureQuantifier>;
     fn capture_names(&self) -> &[&str];
     fn check(_file: &mut File<Self>) -> Result<(), crate::checker::CheckError>
     where

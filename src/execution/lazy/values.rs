@@ -18,6 +18,7 @@ use crate::graph::Erzd;
 use crate::graph::GraphNodeRef;
 use crate::graph::SyntaxNodeRef;
 use crate::graph::Value;
+use crate::graph::WithSynNodes;
 use crate::Identifier;
 
 use super::store::*;
@@ -119,12 +120,11 @@ impl From<LazyCall> for LazyValue {
 }
 
 impl LazyValue {
-    pub(super) fn evaluate<'a, G: Erzd>(
+    pub(super) fn evaluate<'a, G: WithSynNodes>(
         &self,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<Value, ExecutionError>
     where
-        G::Original<'a>: crate::graph::WithSynNodes,
     {
         exec.cancellation_flag.check("evaluating value")?;
         trace!("eval {} {{", self);
@@ -140,12 +140,11 @@ impl LazyValue {
         Ok(ret)
     }
 
-    pub(super) fn evaluate_as_graph_node<'a, G: Erzd>(
+    pub(super) fn evaluate_as_graph_node<'a, G: WithSynNodes>(
         &self,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<GraphNodeRef, ExecutionError>
     where
-        G::Original<'a>: crate::graph::WithSynNodes,
     {
         let node = self.evaluate(exec)?;
         match node {
@@ -154,12 +153,11 @@ impl LazyValue {
         }
     }
 
-    pub(super) fn evaluate_as_syntax_node<'a, G: Erzd>(
+    pub(super) fn evaluate_as_syntax_node<'a, G: WithSynNodes>(
         &self,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<SyntaxNodeRef, ExecutionError>
     where
-        G::Original<'a>: crate::graph::WithSynNodes,
     {
         let node = self.evaluate(exec)?;
         match node {
@@ -197,12 +195,10 @@ impl LazyScopedVariable {
         }
     }
 
-    fn resolve<'a, 'b, G: Erzd>(
+    fn resolve<'a, 'b, G: WithSynNodes>(
         &self,
-        exec: &mut EvaluationContext<'a, 'b, G>,
+        exec: &mut EvaluationContext<'a, G>,
     ) -> Result<LazyValue, ExecutionError>
-    where
-        G::Original<'b>: crate::graph::WithSynNodes,
     {
         let scope = self
             .scope
@@ -213,12 +209,11 @@ impl LazyScopedVariable {
         scoped_store.evaluate(&scope, &self.name, exec)
     }
 
-    pub(super) fn evaluate<'a, G: Erzd>(
+    pub(super) fn evaluate<'a, G: WithSynNodes>(
         &self,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<Value, ExecutionError>
     where
-        G::Original<'a>: crate::graph::WithSynNodes,
     {
         let value = self.resolve(exec)?;
         value.evaluate(exec)
@@ -242,12 +237,11 @@ impl LazyList {
         Self { elements }
     }
 
-    pub(super) fn evaluate<'a, G: Erzd>(
+    pub(super) fn evaluate<'a, G: WithSynNodes>(
         &self,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<Value, ExecutionError>
     where
-        G::Original<'a>: crate::graph::WithSynNodes,
     {
         let elements = self
             .elements
@@ -285,12 +279,11 @@ impl LazySet {
         Self { elements }
     }
 
-    pub(super) fn evaluate<'a, G: Erzd>(
+    pub(super) fn evaluate<'a, G: WithSynNodes>(
         &self,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<Value, ExecutionError>
     where
-        G::Original<'a>: crate::graph::WithSynNodes,
     {
         let elements = self
             .elements
@@ -332,12 +325,11 @@ impl LazyCall {
         }
     }
 
-    pub(super) fn evaluate<'a, G: Erzd>(
+    pub(super) fn evaluate<'a, G: WithSynNodes>(
         &self,
-        exec: &mut EvaluationContext<'_, 'a, G>,
+        exec: &mut EvaluationContext<'_, G>,
     ) -> Result<Value, ExecutionError>
     where
-        G::Original<'a>: crate::graph::WithSynNodes,
     {
         for argument in &self.arguments {
             let argument = argument.evaluate(exec)?;
