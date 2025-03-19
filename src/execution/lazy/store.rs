@@ -20,7 +20,6 @@ use crate::execution::error::ExecutionError;
 use crate::execution::error::ResultWithExecutionError;
 use crate::execution::error::StatementContext;
 use crate::graph;
-use crate::graph::Erzd;
 use crate::graph::SyntaxNodeID;
 use crate::graph::SyntaxNodeRef;
 use crate::graph::WithSynNodes;
@@ -43,10 +42,7 @@ impl LazyVariable {
     pub(super) fn evaluate<'a, G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
-    ) -> Result<graph::Value, ExecutionError>
-    where
-    
-    {
+    ) -> Result<graph::Value, ExecutionError> {
         exec.store.evaluate(self, exec)
     }
 }
@@ -83,9 +79,7 @@ impl LazyStore {
         variable: &LazyVariable,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<graph::Value, ExecutionError>
-    where
-    
-    {
+where {
         let variable = &self.elements[variable.store_location];
         let debug_info = variable.debug_info.clone();
         let value = variable.force(exec).with_context(|| debug_info.0.into())?;
@@ -95,10 +89,7 @@ impl LazyStore {
     pub(super) fn evaluate_all<'a, G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
-    ) -> Result<(), ExecutionError>
-    where
-    
-    {
+    ) -> Result<(), ExecutionError> {
         for variable in &self.elements {
             let debug_info = variable.debug_info.clone();
             variable.force(exec).with_context(|| debug_info.0.into())?;
@@ -154,9 +145,7 @@ impl LazyScopedVariables {
         scope: &SyntaxNodeRef,
         name: &Identifier,
         exec: &mut EvaluationContext<'_, G>,
-    ) -> Result<LazyValue, ExecutionError>
-    where
-    {
+    ) -> Result<LazyValue, ExecutionError> {
         let cell = match self.variables.get(name) {
             Some(v) => v,
             None => {
@@ -192,10 +181,7 @@ impl LazyScopedVariables {
     pub(super) fn evaluate_all<'a, G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
-    ) -> Result<(), ExecutionError>
-    where
-    
-    {
+    ) -> Result<(), ExecutionError> {
         for (name, cell) in &self.variables {
             let values = cell.replace(ScopedValues::Forcing);
             let map = self.force(name, values, exec)?;
@@ -209,10 +195,7 @@ impl LazyScopedVariables {
         name: &Identifier,
         values: ScopedValues,
         exec: &mut EvaluationContext<'_, G>,
-    ) -> Result<HashMap<SyntaxNodeID, LazyValue>, ExecutionError>
-    where
-    
-    {
+    ) -> Result<HashMap<SyntaxNodeID, LazyValue>, ExecutionError> {
         match values {
             ScopedValues::Unforced(pairs) => {
                 let mut values = HashMap::new();
@@ -297,10 +280,7 @@ impl Thunk {
     fn force<'a, G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
-    ) -> Result<graph::Value, ExecutionError>
-    where
-    
-    {
+    ) -> Result<graph::Value, ExecutionError> {
         let state = self.state.replace(ThunkState::Forcing);
         trace!("force {}", state);
         let value = match state {

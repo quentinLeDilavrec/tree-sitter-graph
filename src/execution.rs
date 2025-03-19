@@ -20,9 +20,10 @@ use crate::functions::Functions;
 use crate::generic_query::MyQueryMatch;
 use crate::graph::Attributes;
 use crate::graph::Graph;
-use crate::graph::GraphErazing;
+use crate::graph::NodeLender;
+use crate::graph::NodeLending;
+use crate::graph::NodesLending;
 use crate::graph::QMatch;
-use crate::graph::TSNodeErazing;
 use crate::graph::Value;
 use crate::graph::WithSynNodes;
 use crate::variables::Globals;
@@ -228,23 +229,20 @@ impl<'a, 'tree> Match<QueryMatch<'a, 'tree>> {
 
 impl<QM: QMatch> Match<QM> {
     /// Return the top-level matched node.
-    pub fn full_capture(&self) -> QM::Item {
+    pub fn full_capture(&self) -> crate::graph::NNN<'_, '_, QM> {
         self.mat
-            .nodes_for_capture_index((self.full_capture_index as u32).into())
-            .next()
-            .expect("missing full capture")
+            .nodes_for_capture_indexi((self.full_capture_index as u32).into())
+        // self.mat
+        //     .nodes_for_capture_index((self.full_capture_index as u32).into())
+        // .next()
+        .expect("missing full capture")
     }
 
     /// Return the matched nodes for a named capture.
-    pub fn named_captures<'s>(
-        &'s self,
-    ) -> impl Iterator<
-        Item = (
-            String,
-            CaptureQuantifier,
-            impl Iterator<Item = QM::Item> + 's,
-        ),
-    > {
+    pub fn named_captures(
+        &self,
+    ) -> impl Iterator<Item = (String, CaptureQuantifier, <QM as NodesLending<'_>>::Nodes)> + '_
+    {
         self.named_captures.iter().map(move |c| {
             (
                 c.0.clone(),
@@ -332,17 +330,17 @@ impl CancellationFlag for NoCancellation {
 pub struct CancellationError(pub &'static str);
 
 impl Value {
-    pub fn from_nodes<
-        'tree,
-        NI: IntoIterator<Item = W>,
-        G: WithSynNodes,
-        W: crate::graph::SyntaxNode + Into<G::SNode> + Clone,
-    >(
+    pub fn from_nodes<NI: NodeLender, G: WithSynNodes>(
         graph: &mut G,
         nodes: NI,
         quantifier: CaptureQuantifier,
-    ) -> Value {
-        let mut nodes = nodes.into_iter();
+    ) -> Value
+    where
+        for<'t> <NI as NodeLending<'t>>::Node: Into<G::SNode>,
+        // for<'t> <NI as NodeLending<'t>>::Node: crate::graph::SyntaxNode + Clone,
+        // G::SNode: for<'t> From<<NI as NodeLending<'t>>::Node>,
+    {
+        let mut nodes = nodes; //.into_iter();
         match quantifier {
             CaptureQuantifier::Zero => unreachable!(),
             CaptureQuantifier::One => {

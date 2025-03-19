@@ -24,16 +24,15 @@ use crate::execution::error::ResultWithExecutionError;
 use crate::execution::error::StatementContext;
 use crate::execution::ExecutionConfig;
 use crate::functions::Functions;
+use crate::generic_query::MatchLender;
+use crate::generic_query::MatchLending;
+use crate::generic_query::MatchesLending;
 use crate::generic_query::MyQueryMatch;
 use crate::graph;
 use crate::graph::Attributes;
-use crate::graph::Erzd;
 use crate::graph::Graph;
-use crate::graph::GraphErazing;
 use crate::graph::QMatch;
 use crate::graph::SyntaxNode;
-use crate::graph::SyntaxNodeExt;
-use crate::graph::TSNodeErazing;
 use crate::graph::Value;
 use crate::graph::WithAttrs as _;
 use crate::graph::WithSynNodes;
@@ -44,6 +43,7 @@ use crate::CancellationFlag;
 use crate::GenQuery;
 use crate::Identifier;
 use crate::MyTSNode;
+use crate::QueryWithLang;
 
 use statements::*;
 use store::*;
@@ -99,7 +99,7 @@ impl<'a> Ctx<'a> {
         Ok(())
     }
 
-    pub fn exec<'tree, 'g, 'cursor, 'b, 'c, 'd, 'e, 'f, G, QM, I, Item>(
+    pub fn exec<'tree, 'g, 'cursor, 'b, 'c, 'd, 'e, 'f, G, QM, I>(
         &mut self,
         graph: &'e mut G,
         inherited_variables: &HashSet<Identifier>,
@@ -114,31 +114,27 @@ impl<'a> Ctx<'a> {
     ) -> Result<(), ExecutionError>
     where
         G: WithSynNodes,
-        Item: Clone,
-        Item: SyntaxNode,
-        Item: SyntaxNodeExt,
-        QM: QMatch<I = I, Item = Item>,
-        // QM::Item: Into<G::SNode>,
+        QM: QMatch<I = I>,
+        G: WithSynNodes<SNode = QM::Simple>,
     {
-        todo!()
-        // let mut exec = ExecutionContext {
-        //     graph,
-        //     config,
-        //     locals: &mut self.locals,
-        //     current_regex_captures,
-        //     mat,
-        //     full_match_file_capture_index,
-        //     store: &mut self.store,
-        //     scoped_store: &mut self.scoped_store,
-        //     lazy_graph: &mut self.lazy_graph,
-        //     function_parameters: &mut self.function_parameters,
-        //     prev_element_debug_info: &mut self.prev_element_debug_info,
-        //     error_context,
-        //     inherited_variables,
-        //     shorthands,
-        //     cancellation_flag,
-        // };
-        // statement.execute_lazy(&mut exec)
+        let mut exec = ExecutionContext {
+            graph,
+            config,
+            locals: &mut self.locals,
+            current_regex_captures,
+            mat,
+            full_match_file_capture_index,
+            store: &mut self.store,
+            scoped_store: &mut self.scoped_store,
+            lazy_graph: &mut self.lazy_graph,
+            function_parameters: &mut self.function_parameters,
+            prev_element_debug_info: &mut self.prev_element_debug_info,
+            error_context,
+            inherited_variables,
+            shorthands,
+            cancellation_flag,
+        };
+        statement.execute_lazy(&mut exec)
     }
 }
 
@@ -246,22 +242,30 @@ impl<Q: GenQuery, I: Copy> ast::File<Q, I> {
     /// text that it was parsed from (`source`).  You also provide the set of functions and global
     /// variables that are available during execution. This variant is useful when you need to
     /// “pre-seed” the graph with some predefined nodes and/or edges before executing the DSL file.
-    pub fn execute_lazy_into2<'c, 'tree: 'c, G, N, QM>(
+    pub fn execute_lazy_into2<'c, 'tree: 'c, G, QM>(
         &self,
         graph: &mut G,
-        tree: N,
+        tree: <Q as graph::NodeLending<'_>>::Node,
+        // tree: <QM::Nodes as NodeLending>::Node,
         config: &ExecutionConfig<G>,
         cancellation_flag: &dyn CancellationFlag,
     ) -> Result<(), ExecutionError>
     where
-        Q: 'c + GenQuery<I = I, Match<'c, 'tree> = QM, Node<'tree> = N>, // + 'tree,
-        N: 'c + SyntaxNodeExt<QM<'c> = QM>,
-        QM::Item: Into<G::SNode>,
+        Q: 'c + GenQuery<I = I>, //, Match<'c, 'tree> = QM, Node<'tree> = N>, // + 'tree,
+        // N: 'c + SyntaxNodeExt,
+
+        // G: WithSynNodes<SNode = QM::Simple>,
+
+        // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
         G: WithSynNodes,
-        QM::Item: SyntaxNode,
-        QM::Item: Into<G::SNode>,
+        // QM::Item: SyntaxNode,
+
+        // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
         G: WithSynNodes,
-        QM: QMatch<I = I, Item = N>,
+        QM: QMatch<I = I>,
+
+        for<'t, 'u> <<Q as MatchesLending<'t>>::Matches as MatchLending<'u>>::Match:
+            QMatch<Simple = G::SNode>,
     {
         // todo!("sane generalization")
         let mut globals = Globals::nested(config.globals);
@@ -285,10 +289,13 @@ impl<Q: GenQuery, I: Copy> ast::File<Q, I> {
         let mut cursor = Default::default();
         let query = self.query.as_ref().unwrap();
         let cursor: &mut Q::Cursor = &mut cursor;
-        let cursor = unsafe { std::mem::transmute(cursor) };
+        // let cursor = unsafe { std::mem::transmute(cursor) };
         dbg!();
-        let matches: Q::Matches<'_, '_, 'tree> = query.matches(cursor, &tree);
-        for mat in matches {
+        let mut matches = query.matches(cursor, &tree);
+        loop {
+            let Some(mat) = MatchLender::next(&mut matches) else {
+                break;
+            };
             dbg!();
             cancellation_flag.check("processing matches")?;
             let stanza = &self.stanzas[mat.pattern_index()];
@@ -334,7 +341,7 @@ impl<Q: GenQuery, I: Copy> ast::File<Q, I> {
 }
 
 /// Context for execution, which executes stanzas to build the lazy graph
-struct ExecutionContext<'a, 'c, 'g, 'd, G: WithSynNodes, QM: QMatch, I = <QM as QMatch>::I> {
+struct ExecutionContext<'a, 'c, 'g, 'd, G: WithSynNodes, QM: QMatch, I = <QM as QueryWithLang>::I> {
     graph: &'a mut G,
     config: &'a ExecutionConfig<'c, 'g, 'd, G>,
     locals: &'a mut dyn MutVariables<LazyValue>,
@@ -364,12 +371,9 @@ pub(self) struct EvaluationContext<'a, G> {
     pub cancellation_flag: &'a dyn CancellationFlag,
 }
 impl<'a, G: WithSynNodes> EvaluationContext<'a, G> {
-    fn node2(&self, scope: graph::SyntaxNodeRef) -> Option<G::SNode> {
-        todo!("sane generalization")
-    }
-    fn node(&self, scope: graph::SyntaxNodeRef) -> Option<impl SyntaxNode> {
+    fn node(&self, r: graph::SyntaxNodeRef) -> Option<&impl SyntaxNode> {
         todo!("sane generalization");
-        None::<MyTSNode>
+        None::<&MyTSNode>
     }
 }
 
@@ -399,8 +403,7 @@ impl ast::Stanza<Query> {
         let current_regex_captures = vec![];
         locals.clear();
         let node = mat
-            .nodes_for_capture_index(self.full_match_file_capture_index as u32)
-            .next()
+            .nodes_for_capture_indexi(self.full_match_file_capture_index as u32)
             .expect("missing capture for full match");
         debug!("match {:?} at {}", node, self.range.start);
         trace!("{{");
@@ -453,16 +456,16 @@ impl<Q, I: Copy> ast::Stanza<Q, I> {
         Q: GenQuery, //<I = I>,
         // Q::Node<'tree>: 'c + SyntaxNodeExt<QM<'c> = QM>,
         QM: 'c + QMatch<I = I>,
-        QM::Item: SyntaxNode,
-        QM::Item: Into<G::SNode>,
+        // QM::Item: SyntaxNode,
+        G: WithSynNodes<SNode = QM::Simple>,
+        // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
         Q: GenQuery, //<I = I>,
     {
         let current_regex_captures = vec![];
         locals.clear();
         dbg!();
-        let node: QM::Item = mat
-            .nodes_for_capture_index(self.full_match_file_capture_index)
-            .next()
+        let node = mat
+            .nodes_for_capture_indexi(self.full_match_file_capture_index)
             .expect("missing capture for full match");
         // debug!("match {:?} at {}", node, self.range.start);
         trace!("{{");
@@ -503,7 +506,7 @@ impl ast::Statement {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         exec.cancellation_flag.check("executing statement")?;
         match self {
@@ -528,7 +531,7 @@ impl ast::DeclareImmutable {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         let value = self.value.evaluate_lazy(exec)?;
         self.variable.add_lazy(exec, value, false)
@@ -541,7 +544,7 @@ impl ast::DeclareMutable {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         let value = self.value.evaluate_lazy(exec)?;
         self.variable.add_lazy(exec, value, true)
@@ -554,7 +557,7 @@ impl ast::Assign {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         let value = self.value.evaluate_lazy(exec)?;
         self.variable.set_lazy(exec, value)
@@ -567,7 +570,9 @@ impl ast::CreateGraphNode {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>,
+        // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
+        // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: SyntaxNode,
     {
         dbg!();
         let graph_node = exec.graph.add_graph_node();
@@ -577,8 +582,7 @@ impl ast::CreateGraphNode {
         if let Some(match_node_attr) = &exec.config.match_node_attr {
             let node = exec
                 .mat
-                .nodes_for_capture_index(exec.full_match_file_capture_index)
-                .next()
+                .nodes_for_capture_indexi(exec.full_match_file_capture_index)
                 .expect("missing capture for full match");
             dbg!();
             let syn_node = exec.graph.add_syntax_node(node);
@@ -604,7 +608,7 @@ impl ast::AddGraphNodeAttribute {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         let node = self.node.evaluate_lazy(exec)?;
         let mut attributes = Vec::new();
@@ -625,7 +629,7 @@ impl ast::CreateEdge {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         let source = self.source.evaluate_lazy(exec)?;
         let sink = self.sink.evaluate_lazy(exec)?;
@@ -643,7 +647,7 @@ impl ast::AddEdgeAttribute {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         let source = self.source.evaluate_lazy(exec)?;
         let sink = self.sink.evaluate_lazy(exec)?;
@@ -665,7 +669,7 @@ impl ast::Scan {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         let match_string = self.value.evaluate_eager(exec)?.into_string()?;
 
@@ -757,7 +761,7 @@ impl ast::Print {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         let mut arguments = Vec::new();
         for value in &self.values {
@@ -780,7 +784,7 @@ impl ast::If {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         for arm in &self.arms {
             let mut result = true;
@@ -826,7 +830,7 @@ impl ast::Condition {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<bool, ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         match self {
             Self::Some { value, .. } => Ok(!value.evaluate_eager(exec)?.is_null()),
@@ -842,7 +846,7 @@ impl ast::ForIn {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         let values = self.value.evaluate_eager(exec)?.into_list()?;
         let mut loop_locals = VariableMap::nested(exec.locals);
@@ -883,7 +887,7 @@ impl ast::Expression {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         match self {
             Self::FalseLiteral => Ok(false.into()),
@@ -909,19 +913,18 @@ impl ast::Expression {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<graph::Value, ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
-        todo!("remove problematic bounds")
-        // self.evaluate_lazy(exec)?.evaluate(&mut EvaluationContext {
-        //     graph: exec.graph,
-        //     functions: exec.config.functions,
-        //     store: exec.store,
-        //     scoped_store: exec.scoped_store,
-        //     inherited_variables: exec.inherited_variables,
-        //     function_parameters: exec.function_parameters,
-        //     prev_element_debug_info: exec.prev_element_debug_info,
-        //     cancellation_flag: exec.cancellation_flag,
-        // })
+        self.evaluate_lazy(exec)?.evaluate(&mut EvaluationContext {
+            graph: exec.graph,
+            functions: exec.config.functions,
+            store: exec.store,
+            scoped_store: exec.scoped_store,
+            inherited_variables: exec.inherited_variables,
+            function_parameters: exec.function_parameters,
+            prev_element_debug_info: exec.prev_element_debug_info,
+            cancellation_flag: exec.cancellation_flag,
+        })
     }
 }
 
@@ -949,7 +952,7 @@ impl ast::ListLiteral {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         let mut elements = Vec::new();
         for element in &self.elements {
@@ -965,7 +968,7 @@ impl ast::ListComprehension {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         let values = self.value.evaluate_eager(exec)?.into_list()?;
         let mut elements = Vec::new();
@@ -1004,7 +1007,7 @@ impl ast::SetLiteral {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         let mut elements = Vec::new();
         for element in &self.elements {
@@ -1020,7 +1023,7 @@ impl ast::SetComprehension {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         let values = self.value.evaluate_eager(exec)?.into_list()?;
         let mut elements = Vec::new();
@@ -1059,7 +1062,8 @@ impl ast::Capture {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>,
     {
         let mat = &exec.mat;
         Ok(Value::from_nodes(
@@ -1077,7 +1081,7 @@ impl ast::Call {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         let mut parameters = Vec::new();
         for parameter in &self.parameters {
@@ -1103,7 +1107,7 @@ impl ast::Variable {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         match self {
             Self::Scoped(variable) => variable.evaluate_lazy(exec),
@@ -1120,7 +1124,7 @@ impl ast::Variable {
         mutable: bool,
     ) -> Result<(), ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         match self {
             Self::Scoped(variable) => variable.add_lazy(exec, value, mutable),
@@ -1146,7 +1150,7 @@ impl ast::ScopedVariable {
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         let scope = self.scope.evaluate_lazy(exec)?;
         let value = LazyScopedVariable::new(scope, self.name.clone());
@@ -1160,7 +1164,7 @@ impl ast::ScopedVariable {
         mutable: bool,
     ) -> Result<(), ExecutionError>
     where
-        QM::Item: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         if mutable {
             return Err(ExecutionError::CannotDefineMutableScopedVariable(format!(
@@ -1255,7 +1259,8 @@ impl ast::Attribute {
     ) -> Result<(), ExecutionError>
     where
         F: FnMut(LazyAttribute) -> (),
-        QM::Item: Into<G::SNode>,
+
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         exec.cancellation_flag.check("executing attribute")?;
         let value = self.value.evaluate_lazy(exec)?;
@@ -1277,7 +1282,8 @@ impl ast::AttributeShorthand {
     ) -> Result<(), ExecutionError>
     where
         F: FnMut(LazyAttribute) -> (),
-        QM::Item: Into<G::SNode>,
+
+        G: WithSynNodes<SNode = QM::Simple>, // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
     {
         let mut shorthand_locals = VariableMap::new();
         let mut shorthand_exec = ExecutionContext {

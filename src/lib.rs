@@ -56,6 +56,9 @@ pub use parser::ParseError;
 pub use variables::Globals as Variables;
 pub use variables::Iter as VariableIter;
 pub use variables::VariableError;
+pub use generic_query::MatchesLending;
+pub use generic_query::MatchLender;
+pub use generic_query::MatchLending;
 
 use std::borrow::Borrow;
 use std::hash::Hash;

@@ -72,9 +72,6 @@ pub trait SyntaxNodeExt: SyntaxNode + Clone {
     where
         Self: 'cursor;
 
-    type QM<'cursor>: QMatch<Item = Self>
-    where
-        Self: 'cursor;
 }
 
 pub(crate) type SyntaxNodeID = u32;
@@ -166,15 +163,57 @@ impl<S: Clone, N: WithAttrs + Default + WithOutGoingEdges> WithSynNodes for Grap
     }
 }
 
-pub trait QMatch {
-    type I: Copy + From<u32>;
-    // todo rename into Node
-    type Item: SyntaxNode + Clone + Into<Self::Simple>;
-    type Simple: Clone;
-    fn nodes_for_capture_index(&self, index: Self::I) -> impl Iterator<Item = Self::Item>;
+pub trait NodeLending<'a, __ImplBound = &'a Self> {
+    type Node: SyntaxNodeExt;
+}
+pub trait NodeLender: for<'a> NodeLending<'a> {
+    fn next(&mut self) -> Option<<Self as NodeLending<'_>>::Node>;
+    fn map<B, F>(self, f: F) -> Map<Self, F>
+    where
+        Self: Sized,
+        F: FnMut(<Self as NodeLending<'_>>::Node) -> B,
+    {
+        Map { iter: self, f }
+    }
+}
+
+pub trait NodesLending<'a, __ImplBound = &'a Self> {
+    type Nodes: NodeLender + for<'b> NodeLending<'b>;
+}
+
+#[derive(Clone)]
+pub struct Map<I, F> {
+    iter: I,
+    f: F,
+}
+
+impl<B, I, F> Iterator for Map<I, F>
+where
+    F: for<'t, 'u> FnMut(<I as NodeLending<'_>>::Node) -> B,
+    I: NodeLender,
+{
+    type Item = B;
+    fn next(&mut self) -> Option<B> {
+        self.iter.next().map(&mut self.f)
+    }
+}
+
+pub type NNN<'t, 'u, S: for<'a> NodesLending<'a>> =
+    <<S as NodesLending<'t>>::Nodes as NodeLending<'u>>::Node;
+
+pub trait QMatch: crate::QueryWithLang + for<'a> NodesLending<'a> {
+    // type Item: SyntaxNode + Clone + Into<Self::Simple>;
+    type Simple: Clone + for<'t, 'u> From<<<Self as NodesLending<'t>>::Nodes as NodeLending<'u>>::Node>;
+    fn nodes_for_capture_indexi(&self, index: Self::I) -> Option<NNN<'_, '_, Self>>;
+    fn nodes_for_capture_indexii(
+        &self,
+        index: Self::I,
+    ) -> impl NodeLender + NodeLending<'_, Node = NNN<'_, '_, Self>>;
+    fn nodes_for_capture_index(&self, index: Self::I) -> <Self as NodesLending<'_>>::Nodes;
+    // fn nodes_for_capture_index(&self, index: Self::I) -> impl Iterator<Item = <Self as NodeLending<'_>>::Node>;
     fn pattern_index(&self) -> usize;
-    fn syn_node_ref(&self, node: &Self::Item) -> SyntaxNodeRef;
-    fn node(&self, s: Self::Simple) -> Self::Item { todo!() }
+    fn syn_node_ref(&self, node: &NNN<'_, '_, Self>) -> SyntaxNodeRef;
+    fn node(&self, s: Self::Simple) -> NNN<'_, '_, Self>;
 }
 
 impl<S, N: Default> Graph<S, N> {
@@ -269,9 +308,6 @@ impl<S, N> IndexMut<GraphNodeRef> for Graph<S, N> {
     }
 }
 
-trait IntoGraphSerialize: Sized {
-    fn with_graph<S>(g: Graph<S, Self>) -> impl Serialize;
-}
 trait IntoIndexedSerialize {
     fn with_index(&self, i: usize) -> impl Serialize;
 }
