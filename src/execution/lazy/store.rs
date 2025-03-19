@@ -163,8 +163,9 @@ impl LazyScopedVariables {
         if let Some(value) = map.get(&scope.index) {
             result = Some(value.clone());
         } else if exec.inherited_variables.contains(name) {
-            use crate::graph::SyntaxNode;
-            let mut parent = exec.node(*scope).and_then(|n| n.parent());
+            use crate::graph::SimpleNode;
+            let n = exec.node(*scope);
+            let mut parent = n.and_then(|n| n.parent());
             while let Some(scope) = parent {
                 if let Some(value) = map.get(&(scope.id() as u32)) {
                     result = Some(value.clone());

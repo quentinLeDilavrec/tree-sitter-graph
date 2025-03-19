@@ -48,8 +48,13 @@ impl<S, N> Default for Graph<S, N> {
     }
 }
 
-pub trait SyntaxNode {
+pub trait SimpleNode {
     fn id(&self) -> usize;
+    fn parent(&self) -> Option<Self>
+    where
+        Self: Sized;
+}
+pub trait SyntaxNode: SimpleNode {
     fn kind(&self) -> &'static str;
     fn start_position(&self) -> tree_sitter::Point;
     fn end_position(&self) -> tree_sitter::Point;
@@ -57,9 +62,6 @@ pub trait SyntaxNode {
     fn range(&self) -> tree_sitter::Range;
     fn text(&self) -> String;
     fn named_child_count(&self) -> usize;
-    fn parent(&self) -> Option<Self>
-    where
-        Self: Sized;
 }
 
 pub trait SyntaxNodeExt: SyntaxNode + Clone {
@@ -98,7 +100,7 @@ pub trait WithSynNodes:
     Index<GraphNodeRef, Output = Self::Node> + IndexMut<GraphNodeRef, Output = Self::Node>
 {
     type Node: WithAttrs + Default + WithOutGoingEdges;
-    type SNode: Clone;
+    type SNode: Clone + SimpleNode;
     fn node(&self, r: SyntaxNodeRef) -> Option<&Self::SNode>;
 
     /// Adds a new graph node to the graph, returning a graph DSL reference to it.
@@ -139,7 +141,7 @@ impl<S: LErazng, N> LErazng for Graph<S, N> {
     type LErazing = GraphErazing<S::LErazing>;
 }
 
-impl<S: Clone, N: WithAttrs + Default + WithOutGoingEdges> WithSynNodes for Graph<S, N> {
+impl<S: Clone + SimpleNode, N: WithAttrs + Default + WithOutGoingEdges> WithSynNodes for Graph<S, N> {
     type Node = N;
     type SNode = S;
 

@@ -371,9 +371,8 @@ pub(self) struct EvaluationContext<'a, G> {
     pub cancellation_flag: &'a dyn CancellationFlag,
 }
 impl<'a, G: WithSynNodes> EvaluationContext<'a, G> {
-    fn node(&self, r: graph::SyntaxNodeRef) -> Option<&impl SyntaxNode> {
-        todo!("sane generalization");
-        None::<&MyTSNode>
+    fn node(&self, r: graph::SyntaxNodeRef) -> Option<&G::SNode> {
+        self.graph.node(r)
     }
 }
 

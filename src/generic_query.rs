@@ -2,7 +2,7 @@ use tree_sitter::{CaptureQuantifier, QueryError};
 
 use crate::{
     ast::File,
-    graph::{NodeLender, NodeLending, QMatch, SyntaxNode, SyntaxNodeExt, NNN},
+    graph::{NodeLender, NodeLending, QMatch, SimpleNode, SyntaxNode, SyntaxNodeExt, NNN},
 };
 
 pub trait ExtendedableQuery {
@@ -176,10 +176,23 @@ impl<'tree> std::ops::Deref for MyTSNode<'tree> {
     }
 }
 
-impl<'tree> SyntaxNode for MyTSNode<'tree> {
+impl<'tree> SimpleNode for MyTSNode<'tree> {
     fn id(&self) -> usize {
         self.node.id()
     }
+
+    fn parent(&self) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        self.node.parent().map(|node| Self {
+            node,
+            source: self.source,
+        })
+    }
+}
+
+impl<'tree> SyntaxNode for MyTSNode<'tree> {
 
     fn kind(&self) -> &'static str {
         self.node.kind()
@@ -207,16 +220,6 @@ impl<'tree> SyntaxNode for MyTSNode<'tree> {
 
     fn named_child_count(&self) -> usize {
         self.node.named_child_count()
-    }
-
-    fn parent(&self) -> Option<Self>
-    where
-        Self: Sized,
-    {
-        self.node.parent().map(|node| Self {
-            node,
-            source: self.source,
-        })
     }
 }
 

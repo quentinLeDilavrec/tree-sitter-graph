@@ -292,7 +292,7 @@ pub mod stdlib {
     }
 
     pub mod syntax {
-        use crate::graph::SyntaxNodeExt;
+        use crate::graph::{SimpleNode, SyntaxNodeExt};
 
         use super::*;
 

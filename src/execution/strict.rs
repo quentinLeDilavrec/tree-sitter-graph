@@ -1012,7 +1012,7 @@ impl ScopedVariable {
 
         // search parent nodes
         if exec.inherited_variables.contains(&self.name) {
-            use crate::graph::SyntaxNode;
+            use crate::graph::SimpleNode;
             let mut parent = exec
                 .graph
                 .node(scope)
