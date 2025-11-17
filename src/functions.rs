@@ -11,7 +11,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::execution::error::ExecutionError;
-use crate::graph::Erzd;
 use crate::graph::SyntaxNodeRef;
 use crate::graph::Value;
 use crate::Identifier;
@@ -199,7 +198,6 @@ pub mod stdlib {
     use regex::Regex;
 
     use crate::execution::error::ExecutionError;
-    use crate::graph::Erzd;
     use crate::graph::SyntaxNode;
     use crate::graph::SyntaxNodeRef;
     use crate::graph::Value;

@@ -14,7 +14,6 @@ use std::fmt;
 
 use crate::execution::error::ExecutionError;
 use crate::execution::error::ResultWithExecutionError;
-use crate::graph::Erzd;
 use crate::graph::GraphNodeRef;
 use crate::graph::SyntaxNodeRef;
 use crate::graph::Value;
@@ -124,8 +123,7 @@ impl LazyValue {
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<Value, ExecutionError>
-    where
-    {
+where {
         exec.cancellation_flag.check("evaluating value")?;
         trace!("eval {} {{", self);
         let ret = match self {
@@ -144,8 +142,7 @@ impl LazyValue {
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<GraphNodeRef, ExecutionError>
-    where
-    {
+where {
         let node = self.evaluate(exec)?;
         match node {
             Value::GraphNode(node) => Ok(node),
@@ -157,8 +154,7 @@ impl LazyValue {
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<SyntaxNodeRef, ExecutionError>
-    where
-    {
+where {
         let node = self.evaluate(exec)?;
         match node {
             Value::SyntaxNode(node) => Ok(node),
@@ -198,8 +194,7 @@ impl LazyScopedVariable {
     fn resolve<'a, 'b, G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'a, G>,
-    ) -> Result<LazyValue, ExecutionError>
-    {
+    ) -> Result<LazyValue, ExecutionError> {
         let scope = self
             .scope
             .as_ref()
@@ -213,8 +208,7 @@ impl LazyScopedVariable {
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<Value, ExecutionError>
-    where
-    {
+where {
         let value = self.resolve(exec)?;
         value.evaluate(exec)
     }
@@ -241,8 +235,7 @@ impl LazyList {
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<Value, ExecutionError>
-    where
-    {
+where {
         let elements = self
             .elements
             .iter()
@@ -283,8 +276,7 @@ impl LazySet {
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<Value, ExecutionError>
-    where
-    {
+where {
         let elements = self
             .elements
             .iter()
@@ -329,8 +321,7 @@ impl LazyCall {
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<Value, ExecutionError>
-    where
-    {
+where {
         for argument in &self.arguments {
             let argument = argument.evaluate(exec)?;
             exec.function_parameters.push(argument);

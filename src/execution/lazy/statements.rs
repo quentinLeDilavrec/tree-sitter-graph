@@ -15,7 +15,6 @@ use std::fmt;
 use crate::execution::error::ExecutionError;
 use crate::execution::error::ResultWithExecutionError;
 use crate::graph::Attributes;
-use crate::graph::Erzd;
 use crate::graph::WithAttrs;
 use crate::graph::WithOutGoingEdges as _;
 use crate::graph::WithSynNodes;
@@ -56,8 +55,7 @@ impl LazyGraph {
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
-    where
-    {
+where {
         for stmt in &self.edge_statements {
             stmt.evaluate(exec)?;
         }
@@ -85,8 +83,7 @@ impl LazyStatement {
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
-    where
-    {
+where {
         exec.cancellation_flag.check("evaluating statement")?;
         debug!("eval {}", self);
         trace!("{{");
@@ -169,8 +166,7 @@ impl LazyAddGraphNodeAttribute {
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
-    where
-    {
+where {
         let node = self
             .node
             .evaluate_as_graph_node(exec)
@@ -240,8 +236,7 @@ impl LazyCreateEdge {
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
-    where
-    {
+where {
         let source = self
             .source
             .evaluate_as_graph_node(exec)
@@ -296,8 +291,7 @@ impl LazyAddEdgeAttribute {
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
-    where
-    {
+where {
         let source = self
             .source
             .evaluate_as_graph_node(exec)
@@ -372,8 +366,7 @@ impl LazyPrint {
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
-    where
-    {
+where {
         for argument in &self.arguments {
             match argument {
                 LazyPrintArgument::Text(string) => eprint!("{}", string),

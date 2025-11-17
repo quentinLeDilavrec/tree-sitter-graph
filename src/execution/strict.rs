@@ -9,7 +9,6 @@ use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use tree_sitter::Query;
-use tree_sitter::QueryMatch;
 use tree_sitter::Tree;
 
 use crate::ast::AddEdgeAttribute;
@@ -67,7 +66,6 @@ use crate::variables::VariableMap;
 use crate::variables::Variables;
 use crate::GenQuery;
 use crate::Identifier;
-use crate::Location;
 use crate::MyTSNode;
 use crate::QueryWithLang;
 
@@ -165,7 +163,6 @@ impl<Q: GenQuery, I: Copy> File<Q, I> {
         // // G: WithSynNodes<SNode = QM::Simple>,
         // for<'t, 'u> <<Q as MatchesLending<'t>>::Matches as MatchLending<'u>>::Match:
         //     QMatch<Simple = G::SNode>,
-
         Q: GenQuery<I = I>, //, Match<'c, 'tree> = QM, Node<'tree> = N>, // + 'tree,
         // N: 'c + SyntaxNodeExt,
 

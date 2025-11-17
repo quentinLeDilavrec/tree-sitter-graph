@@ -32,7 +32,6 @@ use crate::graph;
 use crate::graph::Attributes;
 use crate::graph::Graph;
 use crate::graph::QMatch;
-use crate::graph::SyntaxNode;
 use crate::graph::Value;
 use crate::graph::WithAttrs as _;
 use crate::graph::WithSynNodes;
@@ -138,13 +137,6 @@ impl<'a> Ctx<'a> {
     }
 }
 
-pub trait QQMatch {
-    type I;
-    type Item;
-    // fn nodes_for_capture_index(&self, index: Self::I) -> impl Iterator<Item = Self::Item>;
-    // fn pattern_index(&self) -> usize;
-}
-
 impl ast::File<Query> {
     /// Executes this graph DSL file against a source file, saving the results into an existing
     /// `Graph` instance.  You must provide the parsed syntax tree (`tree`) as well as the source
@@ -242,32 +234,21 @@ impl<Q: GenQuery, I: Copy> ast::File<Q, I> {
     /// text that it was parsed from (`source`).  You also provide the set of functions and global
     /// variables that are available during execution. This variant is useful when you need to
     /// “pre-seed” the graph with some predefined nodes and/or edges before executing the DSL file.
-    pub fn execute_lazy_into2<'c, 'tree: 'c, G, QM>(
+    pub fn execute_lazy_into2<G, QM>(
         &self,
         graph: &mut G,
         tree: <Q as graph::NodeLending<'_>>::Node,
-        // tree: <QM::Nodes as NodeLending>::Node,
         config: &ExecutionConfig<G>,
         cancellation_flag: &dyn CancellationFlag,
     ) -> Result<(), ExecutionError>
     where
-        Q: 'c + GenQuery<I = I>, //, Match<'c, 'tree> = QM, Node<'tree> = N>, // + 'tree,
-        // N: 'c + SyntaxNodeExt,
-
-        // G: WithSynNodes<SNode = QM::Simple>,
-
-        // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
-        G: WithSynNodes,
-        // QM::Item: SyntaxNode,
-
-        // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
+        Q: GenQuery<I = I>,
         G: WithSynNodes,
         QM: QMatch<I = I>,
 
         for<'t, 'u> <<Q as MatchesLending<'t>>::Matches as MatchLending<'u>>::Match:
             QMatch<Simple = G::SNode>,
     {
-        // todo!("sane generalization")
         let mut globals = Globals::nested(config.globals);
         self.check_globals(&mut globals)?;
         let mut config = ExecutionConfig {
@@ -289,20 +270,13 @@ impl<Q: GenQuery, I: Copy> ast::File<Q, I> {
         let mut cursor = Default::default();
         let query = self.query.as_ref().unwrap();
         let cursor: &mut Q::Cursor = &mut cursor;
-        // let cursor = unsafe { std::mem::transmute(cursor) };
-        dbg!();
         let mut matches = query.matches(cursor, &tree);
         loop {
             let Some(mat) = MatchLender::next(&mut matches) else {
                 break;
             };
-            dbg!();
             cancellation_flag.check("processing matches")?;
             let stanza = &self.stanzas[mat.pattern_index()];
-            // SAFETY: should be ok, just circumventing the associated lifetime limitations (assumed static)
-            // let mat: Q::Match<'_, 'tree> = mat;
-            // let mat = unsafe { std::mem::transmute(mat) };
-            // NOTE: aparently the error is flacky...
             stanza.execute_lazy2(
                 &mat,
                 graph,
@@ -317,7 +291,6 @@ impl<Q: GenQuery, I: Copy> ast::File<Q, I> {
                 &self.shorthands,
                 cancellation_flag,
             )?;
-            dbg!();
         }
         let mut exec = EvaluationContext {
             graph,
@@ -329,13 +302,11 @@ impl<Q: GenQuery, I: Copy> ast::File<Q, I> {
             prev_element_debug_info: &mut prev_element_debug_info,
             cancellation_flag,
         };
-        dbg!();
         lazy_graph.evaluate(&mut exec)?;
         // make sure any unforced values are now forced, to surface any problems
         // hidden by the fact that the values were unused
         store.evaluate_all(&mut exec)?;
         scoped_store.evaluate_all(&mut exec)?;
-        dbg!();
         Ok(())
     }
 }
@@ -451,26 +422,17 @@ impl<Q, I: Copy> ast::Stanza<Q, I> {
         cancellation_flag: &dyn CancellationFlag,
     ) -> Result<(), ExecutionError>
     where
-        G: WithSynNodes,
-        Q: GenQuery, //<I = I>,
-        // Q::Node<'tree>: 'c + SyntaxNodeExt<QM<'c> = QM>,
+        Q: GenQuery,
         QM: 'c + QMatch<I = I>,
-        // QM::Item: SyntaxNode,
         G: WithSynNodes<SNode = QM::Simple>,
-        // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
-        Q: GenQuery, //<I = I>,
     {
         let current_regex_captures = vec![];
         locals.clear();
-        dbg!();
         let node = mat
             .nodes_for_capture_indexi(self.full_match_file_capture_index)
             .expect("missing capture for full match");
-        // debug!("match {:?} at {}", node, self.range.start);
         trace!("{{");
-        dbg!();
         for statement in &self.statements {
-            dbg!();
             let error_context = { StatementContext::new(&statement, &self, &node) };
             let mut exec = ExecutionContext {
                 graph,
@@ -492,7 +454,6 @@ impl<Q, I: Copy> ast::Stanza<Q, I> {
             statement
                 .execute_lazy(&mut exec)
                 .with_context(|| exec.error_context.into())?;
-            dbg!();
         }
         trace!("}}");
         Ok(())
