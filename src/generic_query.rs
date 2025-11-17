@@ -1,9 +1,8 @@
 use tree_sitter::{CaptureQuantifier, QueryError};
 
-use crate::{
-    ast::File,
-    graph::{NodeLender, NodeLending, QMatch, SimpleNode, SyntaxNode, SyntaxNodeExt, NNN},
-};
+use crate::ast::File;
+use crate::graph::SyntaxNode;
+use crate::graph::{NodeLender, NodeLending, QMatch, SimpleNode, SyntaxNodeExt, NNN};
 
 pub trait ExtendedableQuery {
     type Query: GenQuery<Lang = Self::Lang, Ext = Self>;
@@ -36,10 +35,6 @@ mod ts {
     use tree_sitter::{CaptureQuantifier, Language, Query};
 
     use super::*;
-
-    // impl<Q, L> ExtendedableQuery for ExtendingStringQuery<Q, L> {
-    //     type Query = Q;
-    //     type Lang = L;
     impl ExtendedableQuery for ExtendingStringQuery<Query, Language> {
         type Query = Query;
         type Lang = Language;
@@ -81,18 +76,11 @@ mod ts {
     }
 
     impl<'a> MatchesLending<'a> for Query {
-        // type Matches = MyQM<'query, 'cursor, 'a>;
         type Matches = MyQM<'a, 'a, 'a>;
     }
 
     impl<'a> NodeLending<'a> for Query {
         type Node = MyTSNode<'a>;
-        // type Node<'tree> = tree_sitter::Node<'tree>;
-
-        // type Matches<'query, 'cursor: 'query> = MyQM<'query, 'cursor, 'a> where
-        // 'a: 'cursor;
-        // type Match<'cursor> = MyQueryMatch<'cursor, 'a> where
-        // 'a: 'cursor;
     }
 
     impl GenQuery for Query {
@@ -193,7 +181,6 @@ impl<'tree> SimpleNode for MyTSNode<'tree> {
 }
 
 impl<'tree> SyntaxNode for MyTSNode<'tree> {
-
     fn kind(&self) -> &'static str {
         self.node.kind()
     }
@@ -252,7 +239,6 @@ impl<'tree> SyntaxNodeExt for MyTSNode<'tree> {
             }
         })
     }
-    // type QM<'cursor> = MyQueryMatch<'cursor, 'tree> where 'tree: 'cursor;
 }
 
 pub struct MyQueryMatch<'cursor, 'tree> {
@@ -315,7 +301,6 @@ impl<'a, 'cursor, 'tree> crate::graph::NodesLending<'a> for MyQueryMatch<'cursor
 }
 
 impl<'cursor, 'tree> crate::graph::QMatch for MyQueryMatch<'cursor, 'tree> {
-
     type Simple = MyTSNode<'tree>;
 
     fn nodes_for_capture_index(&self, index: Self::I) -> CapturedNodesIter<'cursor, 'tree> {
@@ -331,7 +316,8 @@ impl<'cursor, 'tree> crate::graph::QMatch for MyQueryMatch<'cursor, 'tree> {
             index,
             inner: self.mat.captures,
             source: self.source,
-        }.next()
+        }
+        .next()
     }
 
     fn nodes_for_capture_indexii(
@@ -348,10 +334,7 @@ impl<'cursor, 'tree> crate::graph::QMatch for MyQueryMatch<'cursor, 'tree> {
         self.mat.pattern_index
     }
 
-    fn syn_node_ref(
-        &self,
-        node: &NNN<'_, '_, Self>,
-    ) -> crate::graph::SyntaxNodeRef {
+    fn syn_node_ref(&self, node: &NNN<'_, '_, Self>) -> crate::graph::SyntaxNodeRef {
         crate::graph::SyntaxNodeRef::new(node)
     }
 
@@ -387,10 +370,14 @@ impl<'a, 'query, 'cursor: 'query, 'tree: 'cursor + 'query> NodeLending<'a>
     type Node = MyTSNode<'a>;
 }
 
-impl<'a, 'query, 'cursor: 'query, 'tree: 'cursor + 'query> MatchLending<'a> for MyQM<'query, 'cursor, 'tree> {
+impl<'a, 'query, 'cursor: 'query, 'tree: 'cursor + 'query> MatchLending<'a>
+    for MyQM<'query, 'cursor, 'tree>
+{
     type Match = MyQueryMatch<'cursor, 'tree>;
 }
-impl<'a, 'query, 'cursor: 'query, 'tree: 'cursor + 'query> MatchLender for MyQM<'query, 'cursor, 'tree> {
+impl<'a, 'query, 'cursor: 'query, 'tree: 'cursor + 'query> MatchLender
+    for MyQM<'query, 'cursor, 'tree>
+{
     fn next(&mut self) -> Option<<Self as MatchLending<'_>>::Match> {
         let m = self.qm.next()?;
         // TODO is there a bug in tree_sitter::QueryMatches::next ?
@@ -423,18 +410,6 @@ pub trait QueryWithLang {
     type I: Copy + From<u32>;
 }
 
-// pub trait NodeLending<'a, __ImplBound = &'a Self>: QueryWithLang {
-//     type Node: 'a + SyntaxNodeExt;
-
-//     // type Matches<'query, 'cursor: 'query>: 'a + IntoIterator<Item = Self::Match<'cursor>>
-//     // where
-//     //     'a: 'cursor;
-
-//     // type Match<'cursor>: 'a + QMatch<I = Self::I>
-//     // where
-//     //     'a: 'cursor;
-// }
-
 pub trait MatchesLending<'a, __ImplBound = &'a Self>: QueryWithLang {
     type Matches: MatchLender + QueryWithLang<I = Self::I>;
 }
@@ -445,104 +420,6 @@ pub trait MatchLender: for<'a> MatchLending<'a> {
 
 pub trait MatchLending<'a, __ImplBound = &'a Self>: QueryWithLang {
     type Match: QMatch + QueryWithLang<I = Self::I>;
-}
-
-mod aaa {
-    use super::QueryWithLang;
-    use super::SyntaxNodeExt;
-    use crate::graph::SyntaxNodeRef;
-    // pub trait NodeLending<'a, __ImplBound = &'a Self>: QueryWithLang {
-    //     type Node: 'a + SyntaxNodeExt;
-
-    // }
-
-    // pub trait MatchesLending<'a, __ImplBound = &'a Self>: for<'t> NodeLending<'t> {
-    //     type Matches: 'a + for<'b> MatchLending<'b>;
-    // }
-    // pub trait MatchLending<'a, __ImplBound = &'a Self>: for<'t> NodeLending<'t> {
-    //     type Match: 'a + QMatch<I = Self::I>;
-    // }
-    trait NodeLending<'a, __ImplBound = &'a Self> {
-        type Node: 'a + SyntaxNodeExt;
-    }
-    trait NodeLender: for<'a> NodeLending<'a> {
-        fn next(&mut self) -> Option<<Self as NodeLending<'_>>::Node>;
-    }
-    trait MatchLending<'a, __ImplBound = &'a Self> {
-        type Match: QMatch;
-    }
-    trait MatchLender: for<'a> MatchLending<'a> {
-        fn next(&mut self) -> Option<<Self as MatchLending<'_>>::Match>;
-    }
-    pub trait MatchesLending<'a> {
-        type Matches: MatchLender;
-    }
-
-    pub trait QMatch {
-        type I: Copy + From<u32>;
-        type Nodes: NodeLender;
-        // type Item: SyntaxNode + Clone + Into<Self::Simple>;
-        // type Simple: Clone;
-        fn nodes_for_capture_index(&self, index: Self::I) -> Self::Nodes;
-        // fn nodes_for_capture_index(&self, index: Self::I) -> impl Iterator<Item = <Self as NodeLending<'_>>::Node>;
-        fn pattern_index(&self) -> usize;
-        fn syn_node_ref(&self, node: &<Self::Nodes as NodeLending<'_>>::Node) -> SyntaxNodeRef;
-        // fn node(&self, s: Self::Simple) -> Self::Item { todo!() }
-    }
-
-    pub struct CapturedNodesIter<'cursor, 'tree> {
-        index: u32,
-        inner: &'cursor [tree_sitter::QueryCapture<'tree>],
-        source: &'tree str,
-    }
-
-    impl<'a, 'cursor, 'tree> NodeLending<'a> for CapturedNodesIter<'cursor, 'tree> {
-        type Node = super::MyTSNode<'tree>;
-    }
-
-    impl<'cursor, 'tree> NodeLender for CapturedNodesIter<'cursor, 'tree> {
-        fn next(&mut self) -> Option<<Self as NodeLending<'_>>::Node> {
-            loop {
-                if self.inner.is_empty() {
-                    return None;
-                }
-                let capture = &self.inner[0];
-                self.inner = &self.inner[1..];
-                if capture.index != self.index {
-                    continue;
-                }
-                let node = capture.node;
-                return Some(super::MyTSNode {
-                    node,
-                    source: self.source,
-                });
-            }
-        }
-    }
-
-    impl<'cursor, 'tree> QMatch for super::MyQueryMatch<'cursor, 'tree> {
-        type I = u32;
-
-        type Nodes = CapturedNodesIter<'cursor, 'tree>;
-
-        fn nodes_for_capture_index(&self, index: Self::I) -> CapturedNodesIter<'cursor, 'tree> {
-            CapturedNodesIter {
-                index,
-                inner: self.mat.captures,
-                source: self.source,
-            }
-        }
-        fn pattern_index(&self) -> usize {
-            self.mat.pattern_index
-        }
-
-        fn syn_node_ref(
-            &self,
-            node: &<Self::Nodes as NodeLending<'_>>::Node,
-        ) -> crate::graph::SyntaxNodeRef {
-            crate::graph::SyntaxNodeRef::new(node)
-        }
-    }
 }
 
 pub trait GenQuery: for<'a> MatchesLending<'a> + for<'a> NodeLending<'a> + QueryWithLang {
@@ -572,16 +449,11 @@ pub trait GenQuery: for<'a> MatchesLending<'a> + for<'a> NodeLending<'a> + Query
         Ok(file)
     }
 
-    // type Node<'tree>: SyntaxNodeExt;
-
     type Cursor: Default;
 
     fn matches<'a>(
         &self,
         cursor: &mut Self::Cursor,
         node: &<Self as NodeLending<'a>>::Node,
-        // tree: Self::Node<'tree>,
-        // source: &'tree str,
-    ) -> <Self as MatchesLending<'a>>::Matches; // MyMatches<'self, 'cursor>
-                                                // ) -> <Self as NodeLending<'_>>::Matches<'query, 'cursor>;
+    ) -> <Self as MatchesLending<'a>>::Matches;
 }

@@ -73,7 +73,6 @@ pub trait SyntaxNodeExt: SyntaxNode + Clone {
     ) -> impl ExactSizeIterator<Item = Self>
     where
         Self: 'cursor;
-
 }
 
 pub(crate) type SyntaxNodeID = u32;
@@ -96,7 +95,6 @@ pub trait WithOutGoingEdges {
 }
 
 pub trait WithSynNodes:
-    // LErazng + 
     Index<GraphNodeRef, Output = Self::Node> + IndexMut<GraphNodeRef, Output = Self::Node>
 {
     type Node: WithAttrs + Default + WithOutGoingEdges;
@@ -141,7 +139,9 @@ impl<S: LErazng, N> LErazng for Graph<S, N> {
     type LErazing = GraphErazing<S::LErazing>;
 }
 
-impl<S: Clone + SimpleNode, N: WithAttrs + Default + WithOutGoingEdges> WithSynNodes for Graph<S, N> {
+impl<S: Clone + SimpleNode, N: WithAttrs + Default + WithOutGoingEdges> WithSynNodes
+    for Graph<S, N>
+{
     type Node = N;
     type SNode = S;
 
@@ -204,15 +204,14 @@ pub type NNN<'t, 'u, S: for<'a> NodesLending<'a>> =
     <<S as NodesLending<'t>>::Nodes as NodeLending<'u>>::Node;
 
 pub trait QMatch: crate::QueryWithLang + for<'a> NodesLending<'a> {
-    // type Item: SyntaxNode + Clone + Into<Self::Simple>;
-    type Simple: Clone + for<'t, 'u> From<<<Self as NodesLending<'t>>::Nodes as NodeLending<'u>>::Node>;
+    type Simple: Clone
+        + for<'t, 'u> From<<<Self as NodesLending<'t>>::Nodes as NodeLending<'u>>::Node>;
     fn nodes_for_capture_indexi(&self, index: Self::I) -> Option<NNN<'_, '_, Self>>;
     fn nodes_for_capture_indexii(
         &self,
         index: Self::I,
     ) -> impl NodeLender + NodeLending<'_, Node = NNN<'_, '_, Self>>;
     fn nodes_for_capture_index(&self, index: Self::I) -> <Self as NodesLending<'_>>::Nodes;
-    // fn nodes_for_capture_index(&self, index: Self::I) -> impl Iterator<Item = <Self as NodeLending<'_>>::Node>;
     fn pattern_index(&self) -> usize;
     fn syn_node_ref(&self, node: &NNN<'_, '_, Self>) -> SyntaxNodeRef;
     fn node(&self, s: Self::Simple) -> NNN<'_, '_, Self>;
@@ -255,12 +254,12 @@ impl<S: SyntaxNode, N: Default> Graph<S, N> {
     }
 }
 
-impl<'tree, S> Graph<S> {
+impl<S> Graph<S> {
     /// Pretty-prints the contents of this graph.
     pub fn pretty_print<'a>(&'a self) -> impl fmt::Display + 'a {
         struct DisplayGraph<'a, S>(&'a Graph<S>);
 
-        impl<'a, S> fmt::Display for DisplayGraph<'a, S> {
+        impl<S> fmt::Display for DisplayGraph<'_, S> {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 let graph = self.0;
                 for (node_index, node) in graph.graph_nodes.iter().enumerate() {
