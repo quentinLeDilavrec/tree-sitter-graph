@@ -75,7 +75,7 @@ impl File<Query> {
     /// text that it was parsed from (`source`).  You also provide the set of functions and global
     /// variables that are available during execution. This variant is useful when you need to
     /// “pre-seed” the graph with some predefined nodes and/or edges before executing the DSL file.
-    pub(super) fn execute_strict_into<'a, 'tree>(
+    pub(super) fn execute_strict_into<'tree>(
         &self,
         graph: &mut Graph<MyTSNode<'tree>>,
         tree: &'tree Tree,
@@ -149,30 +149,7 @@ impl<Q: GenQuery, I: Copy> File<Q, I> {
         cancellation_flag: &dyn CancellationFlag,
     ) -> Result<(), ExecutionError>
     where
-        // QM: QMatch<I = I>,
-        // Q: GenQuery<I = I>,
-        // // Q: for<'t> MatchesLending<'t, Matches/ = <QM::Nodes as NodeLending<'t>>::Node>,
-        // // Q: for<'t> NodeLending<'t, Node = <QM::Nodes as NodeLending<'t>>::Node>,
-        // // Q::Node<'tree>: SyntaxNodeExt<QM<'c> = Q::Match<'c, 'tree>>,
-        // // Q::Match<'c, 'tree>: QMatch<I = I>,// Item = Q::Node<'tree>, Simple = G::SNode>,
-        // G: WithSynNodes,
-        // // G: WithSynNodes<SNode = Q::Node<'tree>>,
-        // // G::LErazing: Erzd<Original<'tree> = G>,
-        // // for<'t> <QM::Nodes as NodeLending<'t>>::Node: Into<G::SNode>,
-        // G: WithSynNodes<SNode = QM::Simple>,
-        // // G: WithSynNodes<SNode = QM::Simple>,
-        // for<'t, 'u> <<Q as MatchesLending<'t>>::Matches as MatchLending<'u>>::Match:
-        //     QMatch<Simple = G::SNode>,
-        Q: GenQuery<I = I>, //, Match<'c, 'tree> = QM, Node<'tree> = N>, // + 'tree,
-        // N: 'c + SyntaxNodeExt,
-
-        // G: WithSynNodes<SNode = QM::Simple>,
-
-        // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
-        G: WithSynNodes,
-        // QM::Item: SyntaxNode,
-
-        // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: Into<G::SNode>,
+        Q: GenQuery<I = I>,
         G: WithSynNodes,
         QM: QMatch<I = I>,
 
@@ -264,14 +241,14 @@ impl<'a> ScopedVariables<'a> {
 }
 
 impl Stanza<Query> {
-    fn execute<'a, 'g, 'l, 's, 'tree>(
+    fn execute<'tree>(
         &self,
         source: &'tree str,
         mat: &MyQueryMatch<'_, 'tree>,
         graph: &mut Graph<MyTSNode<'tree>>,
-        config: &ExecutionConfig<'_, 'g, '_, crate::graph::Graph<crate::MyTSNode<'tree>>>,
-        locals: &mut VariableMap<'l, Value>,
-        scoped: &mut ScopedVariables<'s>,
+        config: &ExecutionConfig<'_, '_, '_, crate::graph::Graph<crate::MyTSNode<'tree>>>,
+        locals: &mut VariableMap<'_, Value>,
+        scoped: &mut ScopedVariables<'_>,
         current_regex_captures: &Vec<String>,
         function_parameters: &mut Vec<Value>,
         inherited_variables: &HashSet<Identifier>,
@@ -308,13 +285,13 @@ impl Stanza<Query> {
     }
 }
 impl<Q, I: Copy> Stanza<Q, I> {
-    fn execute2<'a, 'g, 'l, 's, 'c, 'tree: 'a + 'c, G, QM>(
+    fn execute2<'tree, G, QM>(
         &self,
         mat: &QM,
         graph: &mut G,
-        config: &ExecutionConfig<'a, 'g, 'a, G>,
-        locals: &mut VariableMap<'l, Value>,
-        scoped: &mut ScopedVariables<'s>,
+        config: &ExecutionConfig<'_, '_, '_, G>,
+        locals: &mut VariableMap<'_, Value>,
+        scoped: &mut ScopedVariables<'_>,
         current_regex_captures: &Vec<String>,
         function_parameters: &mut Vec<Value>,
         inherited_variables: &HashSet<Identifier>,
@@ -324,11 +301,7 @@ impl<Q, I: Copy> Stanza<Q, I> {
     where
         QM: QMatch<I = I>,
         Q: GenQuery<I = I>,
-        // Q::Node<'tree>: SyntaxNodeExt<QM<'c> = Q::Match<'c, 'tree>>,
-        // Q::Match<'c, 'tree>: QMatch<Item = Q::Node<'tree>, I = I, Simple = G::SNode>,
-        G: WithSynNodes<SNode = QM::Simple>, //<SNode = Q::Node<'tree>>,
-                                             // G::LErazing: Erzd<Original<'tree> = G>,
-                                             // for<'t> <QM::Nodes as NodeLending<'t>>::Node: Into<G::SNode>,
+        G: WithSynNodes<SNode = QM::Simple>,
     {
         locals.clear();
         for statement in &self.statements {
@@ -381,7 +354,7 @@ impl Stanza<Query> {
 }
 
 impl Statement {
-    fn execute<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
@@ -406,7 +379,7 @@ where
 }
 
 impl DeclareImmutable {
-    fn execute<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError> {
@@ -416,7 +389,7 @@ impl DeclareImmutable {
 }
 
 impl DeclareMutable {
-    fn execute<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError> {
@@ -426,7 +399,7 @@ impl DeclareMutable {
 }
 
 impl Assign {
-    fn execute<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError> {
@@ -436,13 +409,12 @@ impl Assign {
 }
 
 impl CreateGraphNode {
-    fn execute<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
         G: WithSynNodes<SNode = QM::Simple>,
-        // for<'t> <QM::Nodes as NodeLending<'t>>::Node: Into<G::SNode>,
     {
         let graph_node = exec.graph.add_graph_node();
         self.node
@@ -469,7 +441,7 @@ impl CreateGraphNode {
 }
 
 impl AddGraphNodeAttribute {
-    fn execute<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError> {
@@ -493,7 +465,7 @@ impl AddGraphNodeAttribute {
 }
 
 impl CreateEdge {
-    fn execute<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError> {
@@ -508,7 +480,7 @@ impl CreateEdge {
 }
 
 impl AddEdgeAttribute {
-    fn execute<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError> {
@@ -537,7 +509,7 @@ impl AddEdgeAttribute {
 }
 
 impl Scan {
-    fn execute<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
@@ -625,7 +597,7 @@ where
 }
 
 impl Print {
-    fn execute<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError> {
@@ -643,7 +615,7 @@ impl Print {
 }
 
 impl If {
-    fn execute<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
@@ -697,7 +669,7 @@ impl Condition {
 }
 
 impl ForIn {
-    fn execute<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
@@ -1128,7 +1100,7 @@ impl UnscopedVariable {
 }
 
 impl Attribute {
-    fn execute<'a, F, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<F, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
         add_attribute: &F,
@@ -1148,7 +1120,7 @@ impl Attribute {
 }
 
 impl AttributeShorthand {
-    fn execute<'a, F, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<F, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
         add_attribute: &F,

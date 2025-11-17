@@ -57,7 +57,7 @@ pub struct Ctx<'a> {
     prev_element_debug_info: std::collections::HashMap<GraphElementKey, DebugInfo>,
 }
 
-impl<'a> Ctx<'a> {
+impl Ctx<'_> {
     pub fn new() -> Self {
         Self {
             locals: crate::variables::VariableMap::new(),
@@ -73,7 +73,7 @@ impl<'a> Ctx<'a> {
         self.locals.clear()
     }
 
-    pub fn eval<'tree, G: WithSynNodes>(
+    pub fn eval<G: WithSynNodes>(
         &mut self,
         graph: &mut G,
         functions: &Functions<G>,
@@ -98,15 +98,15 @@ impl<'a> Ctx<'a> {
         Ok(())
     }
 
-    pub fn exec<'tree, 'g, 'cursor, 'b, 'c, 'd, 'e, 'f, G, QM, I>(
+    pub fn exec<G, QM, I>(
         &mut self,
-        graph: &'e mut G,
+        graph: &mut G,
         inherited_variables: &HashSet<Identifier>,
         cancellation_flag: &dyn CancellationFlag,
         full_match_file_capture_index: I,
         shorthands: &crate::ast::AttributeShorthands,
-        mat: &'b QM,
-        config: &'c mut crate::ExecutionConfig<'d, 'g, 'f, G>,
+        mat: &QM,
+        config: &mut crate::ExecutionConfig<'_, '_, '_, G>,
         current_regex_captures: &Vec<String>,
         statement: &crate::ast::Statement,
         error_context: crate::execution::error::StatementContext,
@@ -143,7 +143,7 @@ impl ast::File<Query> {
     /// text that it was parsed from (`source`).  You also provide the set of functions and global
     /// variables that are available during execution. This variant is useful when you need to
     /// “pre-seed” the graph with some predefined nodes and/or edges before executing the DSL file.
-    pub(super) fn execute_lazy_into<'a, 'tree>(
+    pub(super) fn execute_lazy_into<'tree>(
         &self,
         graph: &mut Graph<MyTSNode<'tree>>,
         tree: &'tree Tree,
@@ -341,7 +341,7 @@ pub(self) struct EvaluationContext<'a, G> {
     pub prev_element_debug_info: &'a mut HashMap<GraphElementKey, DebugInfo>,
     pub cancellation_flag: &'a dyn CancellationFlag,
 }
-impl<'a, G: WithSynNodes> EvaluationContext<'a, G> {
+impl<G: WithSynNodes> EvaluationContext<'_, G> {
     fn node(&self, r: graph::SyntaxNodeRef) -> Option<&G::SNode> {
         self.graph.node(r)
     }
@@ -354,13 +354,13 @@ pub(super) enum GraphElementKey {
 }
 
 impl ast::Stanza<Query> {
-    fn execute_lazy<'a, 'l, 'g, 'q, 'tree>(
+    fn execute_lazy<'tree>(
         &self,
         source: &'tree str,
         mat: &MyQueryMatch<'_, 'tree>,
         graph: &mut Graph<MyTSNode<'tree>>,
         config: &ExecutionConfig<Graph<MyTSNode<'tree>>>,
-        locals: &mut VariableMap<'l, LazyValue>,
+        locals: &mut VariableMap<'_, LazyValue>,
         store: &mut LazyStore,
         scoped_store: &mut LazyScopedVariables,
         lazy_graph: &mut LazyGraph,
@@ -406,12 +406,12 @@ impl ast::Stanza<Query> {
 }
 
 impl<Q, I: Copy> ast::Stanza<Q, I> {
-    fn execute_lazy2<'a, 'g, 'l, 's, 'c, 'd, 'tree: 'a + 'c, G, QM>(
+    fn execute_lazy2<G, QM>(
         &self,
         mat: &QM,
         graph: &mut G,
-        config: &ExecutionConfig<'a, 'g, 'd, G>,
-        locals: &mut VariableMap<'l, LazyValue>,
+        config: &ExecutionConfig<'_, '_, '_, G>,
+        locals: &mut VariableMap<'_, LazyValue>,
         store: &mut LazyStore,
         scoped_store: &mut LazyScopedVariables,
         lazy_graph: &mut LazyGraph,
@@ -423,7 +423,7 @@ impl<Q, I: Copy> ast::Stanza<Q, I> {
     ) -> Result<(), ExecutionError>
     where
         Q: GenQuery,
-        QM: 'c + QMatch<I = I>,
+        QM: QMatch<I = I>,
         G: WithSynNodes<SNode = QM::Simple>,
     {
         let current_regex_captures = vec![];
