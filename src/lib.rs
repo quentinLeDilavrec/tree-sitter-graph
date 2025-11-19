@@ -38,12 +38,12 @@ pub mod parser;
 mod variables;
 
 mod generic_query;
-pub use generic_query::QueryWithLang;
-pub use generic_query::GenQuery;
 pub use generic_query::ExtendedableQuery;
 pub use generic_query::ExtendingStringQuery;
-pub use generic_query::MyTSNode;
+pub use generic_query::GenQuery;
 pub use generic_query::MyQueryMatch;
+pub use generic_query::MyTSNode;
+pub use generic_query::QueryWithLang;
 
 pub use execution::error::ExecutionError;
 pub use execution::CancellationError;
@@ -51,14 +51,14 @@ pub use execution::CancellationFlag;
 pub use execution::ExecutionConfig;
 pub use execution::Match;
 pub use execution::NoCancellation;
+pub use generic_query::MatchLender;
+pub use generic_query::MatchLending;
+pub use generic_query::MatchesLending;
 pub use parser::Location;
 pub use parser::ParseError;
 pub use variables::Globals as Variables;
 pub use variables::Iter as VariableIter;
 pub use variables::VariableError;
-pub use generic_query::MatchesLending;
-pub use generic_query::MatchLender;
-pub use generic_query::MatchLending;
 
 use std::borrow::Borrow;
 use std::hash::Hash;

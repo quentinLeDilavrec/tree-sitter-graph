@@ -11,8 +11,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::execution::error::ExecutionError;
-use crate::graph::SyntaxNodeRef;
+use crate::graph::NodeLending;
 use crate::graph::Value;
+use crate::graph::WithSynNodes;
 use crate::Identifier;
 
 /// The implementation of a function that can be called from the graph DSL.
@@ -139,7 +140,7 @@ impl<G> Functions<G> {
     }
 }
 
-impl<G> Functions<G> {
+impl<G: WithSynNodes> Functions<G> {
     /// Calls a named function, returning an error if there is no function with that name.
     pub fn call(
         &self,
@@ -155,11 +156,9 @@ impl<G> Functions<G> {
     }
 }
 
-impl<G> Functions<G>
+impl<G: WithSynNodes> Functions<G>
 where
-    G: std::ops::Index<SyntaxNodeRef> + crate::graph::WithSynNodes,
-    <G as std::ops::Index<SyntaxNodeRef>>::Output:
-        crate::graph::SyntaxNodeExt + Sized + std::cmp::PartialEq + Clone,
+    for<'a> <G as NodeLending<'a>>::SNode: std::cmp::PartialEq,
 {
     /// Returns the standard library of functions, as defined in the [language
     /// reference][`crate::reference::functions`].
@@ -171,10 +170,23 @@ where
 
     pub fn add_graph_functions(&mut self) {
         // tree functions
+        self.add_graph_functions0();
         self.add(
             Identifier::from("named-child-index"),
             stdlib::syntax::NamedChildIndex,
         );
+    }
+}
+
+impl<G: WithSynNodes> Functions<G> {
+    pub fn stdlib0() -> Self {
+        let mut functions = Self::essentials();
+        functions.add_graph_functions0();
+        functions
+    }
+
+    pub fn add_graph_functions0(&mut self) {
+        // tree functions
         self.add(Identifier::from("source-text"), stdlib::syntax::SourceText);
         self.add(Identifier::from("start-row"), stdlib::syntax::StartRow);
         self.add(
@@ -198,8 +210,6 @@ pub mod stdlib {
     use regex::Regex;
 
     use crate::execution::error::ExecutionError;
-    use crate::graph::SyntaxNode;
-    use crate::graph::SyntaxNodeRef;
     use crate::graph::Value;
 
     use super::Function;
@@ -290,7 +300,7 @@ pub mod stdlib {
     }
 
     pub mod syntax {
-        use crate::graph::{SimpleNode, SyntaxNodeExt};
+        use crate::graph::{NodeLending, SimpleNode, SyntaxNode, SyntaxNodeExt, WithSynNodes};
 
         use super::*;
 
@@ -298,19 +308,17 @@ pub mod stdlib {
         /// function.
         pub struct NamedChildIndex;
 
-        impl<G> Function<G> for NamedChildIndex
+        impl<G: WithSynNodes> Function<G> for NamedChildIndex
         where
-            G: std::ops::Index<SyntaxNodeRef>,
-            <G as std::ops::Index<SyntaxNodeRef>>::Output:
-                SyntaxNodeExt + Sized + std::cmp::PartialEq + Clone,
+            for<'a> <G as NodeLending<'a>>::SNode: std::cmp::PartialEq,
         {
             fn call(
                 &self,
                 graph: &mut G,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
-                let node = &graph[parameters.param()?.into_syntax_node_ref()?];
-                let node = node.clone();
+                let r = parameters.param()?.into_syntax_node_ref()?;
+                let node = graph.node(r).unwrap();
                 parameters.finish()?;
                 let parent = match node.parent() {
                     Some(parent) => parent,
@@ -337,17 +345,14 @@ pub mod stdlib {
         /// function.
         pub struct SourceText;
 
-        impl<G> Function<G> for SourceText
-        where
-            G: std::ops::Index<SyntaxNodeRef>,
-            <G as std::ops::Index<SyntaxNodeRef>>::Output: SyntaxNode + Sized + Clone,
-        {
+        impl<G: WithSynNodes> Function<G> for SourceText {
             fn call(
                 &self,
                 graph: &mut G,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
-                let node = &graph[parameters.param()?.into_syntax_node_ref()?];
+                let r = parameters.param()?.into_syntax_node_ref()?;
+                let node = graph.node(r).unwrap();
                 parameters.finish()?;
                 Ok(Value::String(node.text()))
             }
@@ -357,17 +362,14 @@ pub mod stdlib {
         // function.
         pub struct StartRow;
 
-        impl<G> Function<G> for StartRow
-        where
-            G: std::ops::Index<SyntaxNodeRef>,
-            <G as std::ops::Index<SyntaxNodeRef>>::Output: SyntaxNode + Sized + Clone,
-        {
+        impl<G: WithSynNodes> Function<G> for StartRow {
             fn call(
                 &self,
                 graph: &mut G,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
-                let node = &graph[parameters.param()?.into_syntax_node_ref()?];
+                let r = parameters.param()?.into_syntax_node_ref()?;
+                let node = graph.node(r).unwrap();
                 parameters.finish()?;
                 Ok(Value::Integer(node.start_position().row as u32))
             }
@@ -378,17 +380,14 @@ pub mod stdlib {
         // function.
         pub struct StartColumn;
 
-        impl<G> Function<G> for StartColumn
-        where
-            G: std::ops::Index<SyntaxNodeRef>,
-            <G as std::ops::Index<SyntaxNodeRef>>::Output: SyntaxNode + Sized + Clone,
-        {
+        impl<G: WithSynNodes> Function<G> for StartColumn {
             fn call(
                 &self,
                 graph: &mut G,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
-                let node = &graph[parameters.param()?.into_syntax_node_ref()?];
+                let r = parameters.param()?.into_syntax_node_ref()?;
+                let node = graph.node(r).unwrap();
                 parameters.finish()?;
                 Ok(Value::Integer(node.start_position().column as u32))
             }
@@ -398,17 +397,14 @@ pub mod stdlib {
         // function.
         pub struct EndRow;
 
-        impl<G> Function<G> for EndRow
-        where
-            G: std::ops::Index<SyntaxNodeRef>,
-            <G as std::ops::Index<SyntaxNodeRef>>::Output: SyntaxNode + Sized + Clone,
-        {
+        impl<G: WithSynNodes> Function<G> for EndRow {
             fn call(
                 &self,
                 graph: &mut G,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
-                let node = &graph[parameters.param()?.into_syntax_node_ref()?];
+                let r = parameters.param()?.into_syntax_node_ref()?;
+                let node = graph.node(r).unwrap();
                 parameters.finish()?;
                 Ok(Value::Integer(node.end_position().row as u32))
             }
@@ -418,17 +414,14 @@ pub mod stdlib {
         // function.
         pub struct EndColumn;
 
-        impl<G> Function<G> for EndColumn
-        where
-            G: std::ops::Index<SyntaxNodeRef>,
-            <G as std::ops::Index<SyntaxNodeRef>>::Output: SyntaxNode + Sized + Clone,
-        {
+        impl<G: WithSynNodes> Function<G> for EndColumn {
             fn call(
                 &self,
                 graph: &mut G,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
-                let node = &graph[parameters.param()?.into_syntax_node_ref()?];
+                let r = parameters.param()?.into_syntax_node_ref()?;
+                let node = graph.node(r).unwrap();
                 parameters.finish()?;
                 Ok(Value::Integer(node.end_position().column as u32))
             }
@@ -438,17 +431,14 @@ pub mod stdlib {
         // function.
         pub struct NodeType;
 
-        impl<G> Function<G> for NodeType
-        where
-            G: std::ops::Index<SyntaxNodeRef>,
-            <G as std::ops::Index<SyntaxNodeRef>>::Output: SyntaxNode + Sized + Clone,
-        {
+        impl<G: WithSynNodes> Function<G> for NodeType {
             fn call(
                 &self,
                 graph: &mut G,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
-                let node = &graph[parameters.param()?.into_syntax_node_ref()?];
+                let r = parameters.param()?.into_syntax_node_ref()?;
+                let node = graph.node(r).unwrap();
                 parameters.finish()?;
                 Ok(Value::String(node.kind().to_string()))
             }
@@ -459,17 +449,14 @@ pub mod stdlib {
 
         pub struct NamedChildCount;
 
-        impl<G> Function<G> for NamedChildCount
-        where
-            G: std::ops::Index<SyntaxNodeRef>,
-            <G as std::ops::Index<SyntaxNodeRef>>::Output: SyntaxNode + Sized + Clone,
-        {
+        impl<G: WithSynNodes> Function<G> for NamedChildCount {
             fn call(
                 &self,
                 graph: &mut G,
                 parameters: &mut dyn Parameters,
             ) -> Result<Value, ExecutionError> {
-                let node = &graph[parameters.param()?.into_syntax_node_ref()?];
+                let r = parameters.param()?.into_syntax_node_ref()?;
+                let node = graph.node(r).unwrap();
                 parameters.finish()?;
                 Ok(Value::Integer(node.named_child_count() as u32))
             }

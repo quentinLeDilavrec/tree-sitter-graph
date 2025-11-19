@@ -80,7 +80,7 @@ mod ts {
     }
 
     impl<'a> NodeLending<'a> for Query {
-        type Node = MyTSNode<'a>;
+        type SNode = MyTSNode<'a>;
     }
 
     impl GenQuery for Query {
@@ -126,9 +126,7 @@ mod ts {
         fn matches<'a>(
             &self,
             cursor: &mut Self::Cursor,
-            node: &<Query as NodeLending<'a>>::Node,
-            // node: Self::Node<'tree>,
-            // source: &'tree str,
+            node: &<Query as NodeLending<'a>>::SNode,
         ) -> <Self as MatchesLending<'a>>::Matches {
             // ) -> <Query as NodeLending<'_>>::Matches<'query, 'cursor> {
             // let matches = cursor.matches(self, node, source.as_bytes());
@@ -168,16 +166,6 @@ impl<'tree> SimpleNode for MyTSNode<'tree> {
     fn id(&self) -> usize {
         self.node.id()
     }
-
-    fn parent(&self) -> Option<Self>
-    where
-        Self: Sized,
-    {
-        self.node.parent().map(|node| Self {
-            node,
-            source: self.source,
-        })
-    }
 }
 
 impl<'tree> SyntaxNode for MyTSNode<'tree> {
@@ -211,6 +199,15 @@ impl<'tree> SyntaxNode for MyTSNode<'tree> {
 }
 
 impl<'tree> SyntaxNodeExt for MyTSNode<'tree> {
+    fn parent(&self) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        self.node.parent().map(|node| Self {
+            node,
+            source: self.source,
+        })
+    }
     type Cursor = tree_sitter::TreeCursor<'tree>;
     fn walk(&self) -> Self::Cursor {
         self.node.walk()
@@ -268,11 +265,11 @@ pub struct CapturedNodesIter<'cursor, 'tree> {
 }
 
 impl<'a, 'cursor, 'tree> NodeLending<'a> for CapturedNodesIter<'cursor, 'tree> {
-    type Node = super::MyTSNode<'tree>;
+    type SNode = super::MyTSNode<'tree>;
 }
 
 impl<'cursor, 'tree> NodeLender for CapturedNodesIter<'cursor, 'tree> {
-    fn next(&mut self) -> Option<<Self as NodeLending<'_>>::Node> {
+    fn next(&mut self) -> Option<<Self as NodeLending<'_>>::SNode> {
         loop {
             if self.inner.is_empty() {
                 return None;
@@ -323,7 +320,7 @@ impl<'cursor, 'tree> crate::graph::QMatch for MyQueryMatch<'cursor, 'tree> {
     fn nodes_for_capture_indexii(
         &self,
         index: Self::I,
-    ) -> impl NodeLender + NodeLending<'_, Node = NNN<'_, '_, Self>> {
+    ) -> impl NodeLender + NodeLending<'_, SNode = NNN<'_, '_, Self>> {
         CapturedNodesIter {
             index,
             inner: self.mat.captures,
@@ -367,7 +364,7 @@ impl<'a, 'query, 'cursor: 'query, 'tree: 'cursor + 'query> QueryWithLang
 impl<'a, 'query, 'cursor: 'query, 'tree: 'cursor + 'query> NodeLending<'a>
     for MyQM<'query, 'cursor, 'tree>
 {
-    type Node = MyTSNode<'a>;
+    type SNode = MyTSNode<'a>;
 }
 
 impl<'a, 'query, 'cursor: 'query, 'tree: 'cursor + 'query> MatchLending<'a>
@@ -454,6 +451,6 @@ pub trait GenQuery: for<'a> MatchesLending<'a> + for<'a> NodeLending<'a> + Query
     fn matches<'a>(
         &self,
         cursor: &mut Self::Cursor,
-        node: &<Self as NodeLending<'a>>::Node,
+        node: &<Self as NodeLending<'a>>::SNode,
     ) -> <Self as MatchesLending<'a>>::Matches;
 }

@@ -50,10 +50,8 @@ impl<S, N> Default for Graph<S, N> {
 
 pub trait SimpleNode {
     fn id(&self) -> usize;
-    fn parent(&self) -> Option<Self>
-    where
-        Self: Sized;
 }
+
 pub trait SyntaxNode: SimpleNode {
     fn kind(&self) -> &'static str;
     fn start_position(&self) -> tree_sitter::Point;
@@ -66,6 +64,9 @@ pub trait SyntaxNode: SimpleNode {
 
 pub trait SyntaxNodeExt: SyntaxNode + Clone {
     type Cursor;
+    fn parent(&self) -> Option<Self>
+    where
+        Self: Sized;
     fn walk(&self) -> Self::Cursor;
     fn named_children<'cursor>(
         &self,
@@ -75,7 +76,7 @@ pub trait SyntaxNodeExt: SyntaxNode + Clone {
         Self: 'cursor;
 }
 
-pub(crate) type SyntaxNodeID = u32;
+pub type SyntaxNodeID = u32;
 type GraphNodeID = u32;
 
 impl<S, N> Graph<S, N> {
@@ -94,16 +95,18 @@ pub trait WithOutGoingEdges {
     fn get_edge_mut(&mut self, sink: GraphNodeRef) -> Option<&mut Edge>;
 }
 
+// TODO extract Node, add_graph_node, and indexing bounds as WithNodes
 pub trait WithSynNodes:
-    Index<GraphNodeRef, Output = Self::Node> + IndexMut<GraphNodeRef, Output = Self::Node>
+    Index<GraphNodeRef, Output = Self::Node>
+    + IndexMut<GraphNodeRef, Output = Self::Node>
+    + for<'a> NodeLending<'a>
 {
     type Node: WithAttrs + Default + WithOutGoingEdges;
-    type SNode: Clone + SimpleNode;
-    fn node(&self, r: SyntaxNodeRef) -> Option<&Self::SNode>;
+    fn node(&self, r: SyntaxNodeRef) -> Option<<Self as NodeLending<'_>>::SNode>;
 
     /// Adds a new graph node to the graph, returning a graph DSL reference to it.
     fn add_graph_node(&mut self) -> GraphNodeRef;
-    fn add_syntax_node(&mut self, node: impl SyntaxNode + Into<Self::SNode>) -> SyntaxNodeRef;
+    fn add_syntax_node(&mut self, node: <Self as NodeLending<'_>>::SNode) -> SyntaxNodeRef;
 }
 
 pub struct GraphErazing<S>(std::marker::PhantomData<S>);
@@ -131,49 +134,46 @@ pub trait LErazng {
     type LErazing: Erzd;
 }
 
-impl<'tree> LErazng for MyTSNode<'tree> {
-    type LErazing = TSNodeErazing;
+impl<'a, S: SyntaxNodeExt, N> NodeLending<'a> for Graph<S, N> {
+    type SNode = S;
 }
 
-impl<S: LErazng, N> LErazng for Graph<S, N> {
-    type LErazing = GraphErazing<S::LErazing>;
-}
-
-impl<S: Clone + SimpleNode, N: WithAttrs + Default + WithOutGoingEdges> WithSynNodes
-    for Graph<S, N>
+impl<S: Clone + SimpleNode, N: WithAttrs + Default + WithOutGoingEdges> WithSynNodes for Graph<S, N>
+where
+    S: SyntaxNodeExt,
 {
     type Node = N;
-    type SNode = S;
 
-    fn node(&self, r: SyntaxNodeRef) -> Option<&Self::SNode> {
-        self.syntax_nodes.get(&r.index)
+    fn node(&self, r: SyntaxNodeRef) -> Option<<Self as NodeLending<'_>>::SNode> {
+        self.syntax_nodes.get(&r.index).map(|x| x.clone())
     }
 
     fn add_graph_node(&mut self) -> GraphNodeRef {
         self.add_graph_node()
     }
 
-    fn add_syntax_node(&mut self, node: impl SyntaxNode + Into<Self::SNode>) -> SyntaxNodeRef {
+    fn add_syntax_node(&mut self, node: <Self as NodeLending<'_>>::SNode) -> SyntaxNodeRef {
         let index = node.id() as SyntaxNodeID;
         let node_ref = SyntaxNodeRef {
             index,
             kind: node.kind(),
             position: node.start_position(),
         };
-        self.syntax_nodes.entry(index).or_insert(node.into());
+        self.syntax_nodes.entry(index).or_insert(node.clone());
         node_ref
     }
 }
 
 pub trait NodeLending<'a, __ImplBound = &'a Self> {
-    type Node: SyntaxNodeExt;
+    type SNode: SyntaxNodeExt;
 }
+
 pub trait NodeLender: for<'a> NodeLending<'a> {
-    fn next(&mut self) -> Option<<Self as NodeLending<'_>>::Node>;
+    fn next(&mut self) -> Option<<Self as NodeLending<'_>>::SNode>;
     fn map<B, F>(self, f: F) -> Map<Self, F>
     where
         Self: Sized,
-        F: FnMut(<Self as NodeLending<'_>>::Node) -> B,
+        F: FnMut(<Self as NodeLending<'_>>::SNode) -> B,
     {
         Map { iter: self, f }
     }
@@ -191,7 +191,7 @@ pub struct Map<I, F> {
 
 impl<B, I, F> Iterator for Map<I, F>
 where
-    F: for<'t, 'u> FnMut(<I as NodeLending<'_>>::Node) -> B,
+    F: for<'t, 'u> FnMut(<I as NodeLending<'_>>::SNode) -> B,
     I: NodeLender,
 {
     type Item = B;
@@ -201,16 +201,16 @@ where
 }
 
 pub type NNN<'t, 'u, S: for<'a> NodesLending<'a>> =
-    <<S as NodesLending<'t>>::Nodes as NodeLending<'u>>::Node;
+    <<S as NodesLending<'t>>::Nodes as NodeLending<'u>>::SNode;
 
 pub trait QMatch: crate::QueryWithLang + for<'a> NodesLending<'a> {
     type Simple: Clone
-        + for<'t, 'u> From<<<Self as NodesLending<'t>>::Nodes as NodeLending<'u>>::Node>;
+        + for<'t, 'u> From<<<Self as NodesLending<'t>>::Nodes as NodeLending<'u>>::SNode>;
     fn nodes_for_capture_indexi(&self, index: Self::I) -> Option<NNN<'_, '_, Self>>;
     fn nodes_for_capture_indexii(
         &self,
         index: Self::I,
-    ) -> impl NodeLender + NodeLending<'_, Node = NNN<'_, '_, Self>>;
+    ) -> impl NodeLender + NodeLending<'_, SNode = NNN<'_, '_, Self>>;
     fn nodes_for_capture_index(&self, index: Self::I) -> <Self as NodesLending<'_>>::Nodes;
     fn pattern_index(&self) -> usize;
     fn syn_node_ref(&self, node: &NNN<'_, '_, Self>) -> SyntaxNodeRef;
@@ -309,7 +309,7 @@ impl<S, N> IndexMut<GraphNodeRef> for Graph<S, N> {
     }
 }
 
-trait IntoIndexedSerialize {
+pub trait IntoIndexedSerialize {
     fn with_index(&self, i: usize) -> impl Serialize;
 }
 
@@ -844,9 +844,9 @@ impl Serialize for Value {
 /// A reference to a syntax node in a graph
 #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SyntaxNodeRef {
-    pub(crate) index: SyntaxNodeID,
-    kind: &'static str,
-    position: tree_sitter::Point,
+    pub index: SyntaxNodeID,
+    pub kind: &'static str,
+    pub position: tree_sitter::Point,
 }
 
 impl SyntaxNodeRef {
@@ -907,7 +907,7 @@ impl std::fmt::Debug for SyntaxNodeRef {
 
 /// A reference to a graph node
 #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct GraphNodeRef(GraphNodeID);
+pub struct GraphNodeRef(pub GraphNodeID);
 
 impl GraphNodeRef {
     /// Returns the index of the graph node that this reference refers to.

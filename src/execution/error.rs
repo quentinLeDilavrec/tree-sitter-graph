@@ -93,10 +93,10 @@ pub struct StatementContext {
 }
 
 impl StatementContext {
-    pub fn new<Q: GenQuery, I, N: SyntaxNode>(
+    pub fn new<Q, I, S: SyntaxNode>(
         stmt: &Statement,
         stanza: &Stanza<Q, I>,
-        source_node: &N,
+        source_node: &S,
     ) -> Self {
         // let source_location: Location::from(source_node.start_position()), // TODO make a better location for hyperast;
         let source_location = Location { row: 0, column: 0 };
@@ -107,7 +107,7 @@ impl StatementContext {
             source_node.kind().to_string(),
         )
     }
-    
+
     pub fn raw(
         stmt: &Statement,
         stanza_location: Location,

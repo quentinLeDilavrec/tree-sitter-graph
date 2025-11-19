@@ -165,6 +165,7 @@ impl LazyScopedVariables {
         } else if exec.inherited_variables.contains(name) {
             use crate::graph::SimpleNode;
             let n = exec.node(*scope);
+            use crate::graph::SyntaxNodeExt;
             let mut parent = n.and_then(|n| n.parent());
             while let Some(scope) = parent {
                 if let Some(value) = map.get(&(scope.id() as u32)) {

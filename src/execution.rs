@@ -32,8 +32,8 @@ use crate::Location;
 use crate::MyTSNode;
 
 pub mod error;
-mod lazy;
-mod strict;
+pub mod lazy;
+pub mod strict;
 
 pub use lazy::Ctx;
 
@@ -232,10 +232,7 @@ impl<QM: QMatch> Match<QM> {
     pub fn full_capture(&self) -> crate::graph::NNN<'_, '_, QM> {
         self.mat
             .nodes_for_capture_indexi((self.full_capture_index as u32).into())
-        // self.mat
-        //     .nodes_for_capture_index((self.full_capture_index as u32).into())
-        // .next()
-        .expect("missing full capture")
+            .expect("missing full capture")
     }
 
     /// Return the matched nodes for a named capture.
@@ -265,7 +262,7 @@ impl<QM: QMatch> Match<QM> {
 
 /// Configuration for the execution of a File
 pub struct ExecutionConfig<'a, 'g, 'b, G> {
-    pub(crate) functions: &'a Functions<G>,
+    pub functions: &'a Functions<G>,
     pub(crate) globals: &'b Globals<'g>,
     pub(crate) lazy: bool,
     pub(crate) location_attr: Option<Identifier>,
@@ -336,9 +333,7 @@ impl Value {
         quantifier: CaptureQuantifier,
     ) -> Value
     where
-        for<'t> <NI as NodeLending<'t>>::Node: Into<G::SNode>,
-        // for<'t> <NI as NodeLending<'t>>::Node: crate::graph::SyntaxNode + Clone,
-        // G::SNode: for<'t> From<<NI as NodeLending<'t>>::Node>,
+        for<'t> NI: NodeLending<'t, SNode = <G as NodeLending<'t>>::SNode>,
     {
         let mut nodes = nodes; //.into_iter();
         match quantifier {

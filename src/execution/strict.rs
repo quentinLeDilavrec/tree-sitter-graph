@@ -51,9 +51,12 @@ use crate::generic_query::MatchLender;
 use crate::generic_query::MatchLending;
 use crate::generic_query::MatchesLending;
 use crate::generic_query::MyQueryMatch;
+use crate::graph;
 use crate::graph::Graph;
 use crate::graph::NodeLending;
+use crate::graph::NodesLending;
 use crate::graph::QMatch;
+use crate::graph::SyntaxNodeExt;
 use crate::graph::SyntaxNodeID;
 use crate::graph::SyntaxNodeRef;
 use crate::graph::Value;
@@ -141,20 +144,18 @@ impl<Q: GenQuery, I: Copy> File<Q, I> {
     /// text that it was parsed from (`source`).  You also provide the set of functions and global
     /// variables that are available during execution. This variant is useful when you need to
     /// “pre-seed” the graph with some predefined nodes and/or edges before executing the DSL file.
-    pub fn execute_strict_into2<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    pub fn execute_strict_into2<G: WithSynNodes, QM: QMatch>(
         &self,
         graph: &mut G,
-        tree: <Q as NodeLending<'_>>::Node,
+        tree: <Q as NodeLending<'_>>::SNode,
         config: &ExecutionConfig<G>,
         cancellation_flag: &dyn CancellationFlag,
     ) -> Result<(), ExecutionError>
     where
         Q: GenQuery<I = I>,
-        G: WithSynNodes,
         QM: QMatch<I = I>,
-
-        for<'t, 'u> <<Q as MatchesLending<'t>>::Matches as MatchLending<'u>>::Match:
-            QMatch<Simple = G::SNode>,
+        for<'t, 'u, 'v, 'w> <LendM<'v, 'w, Q> as NodesLending<'u>>::Nodes:
+            NodeLending<'t, SNode = <G as NodeLending<'t>>::SNode>,
     {
         let mut globals = Globals::nested(config.globals);
         self.check_globals(&mut globals)?;
@@ -198,6 +199,12 @@ impl<Q: GenQuery, I: Copy> File<Q, I> {
         Ok(())
     }
 }
+
+type LendM<'v, 'w, T: MatchesLending<'v>> = <T::Matches as MatchLending<'w>>::Match;
+
+type LendNS<'u, QM: QMatch> = <QM as NodesLending<'u>>::Nodes;
+
+type LendS<'t, T: NodeLending<'t>> = <T as NodeLending<'t>>::SNode;
 
 /// State that is threaded through the execution
 struct ExecutionContext<'a, 'g, 's, 'b, G, QM: QMatch, I = <QM as QueryWithLang>::I>
@@ -277,9 +284,7 @@ impl Stanza<Query> {
                 shorthands,
                 cancellation_flag,
             };
-            statement
-                .execute(&mut exec)
-                .with_context(|| exec.error_context.into())?;
+            execute_stmt(&statement, &mut exec).with_context(|| exec.error_context.into())?;
         }
         Ok(())
     }
@@ -301,7 +306,9 @@ impl<Q, I: Copy> Stanza<Q, I> {
     where
         QM: QMatch<I = I>,
         Q: GenQuery<I = I>,
-        G: WithSynNodes<SNode = QM::Simple>,
+        G: WithSynNodes,
+        for<'t, 'u> <QM as NodesLending<'u>>::Nodes:
+            NodeLending<'t, SNode = <G as NodeLending<'t>>::SNode>,
     {
         locals.clear();
         for statement in &self.statements {
@@ -325,9 +332,7 @@ impl<Q, I: Copy> Stanza<Q, I> {
                 shorthands,
                 cancellation_flag,
             };
-            statement
-                .execute(&mut exec)
-                .with_context(|| exec.error_context.into())?;
+            execute_stmt(&statement, &mut exec).with_context(|| exec.error_context.into())?;
         }
         Ok(())
     }
@@ -353,13 +358,23 @@ impl Stanza<Query> {
     }
 }
 
+fn execute_stmt<G: WithSynNodes, QM: QMatch>(
+    stmt: &Statement,
+    exec: &mut ExecutionContext<G, QM>,
+) -> Result<(), ExecutionError>
+where
+    for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+{
+    stmt.execute(exec)
+}
+
 impl Statement {
-    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
-where
-        // for<'t> <QM::Nodes as NodeLending<'t>>::Node: Into<G::SNode>,
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
     {
         exec.cancellation_flag.check("executing statement")?;
         match self {
@@ -379,42 +394,52 @@ where
 }
 
 impl DeclareImmutable {
-    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         let value = self.value.evaluate(exec)?;
         self.variable.add(exec, value, false)
     }
 }
 
 impl DeclareMutable {
-    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         let value = self.value.evaluate(exec)?;
         self.variable.add(exec, value, true)
     }
 }
 
 impl Assign {
-    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         let value = self.value.evaluate(exec)?;
         self.variable.set(exec, value)
     }
 }
 
 impl CreateGraphNode {
-    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
     where
-        G: WithSynNodes<SNode = QM::Simple>,
+        for<'t, 'u> <QM as NodesLending<'u>>::Nodes:
+            NodeLending<'t, SNode = <G as NodeLending<'t>>::SNode>,
     {
         let graph_node = exec.graph.add_graph_node();
         self.node
@@ -441,10 +466,13 @@ impl CreateGraphNode {
 }
 
 impl AddGraphNodeAttribute {
-    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         let node = self.node.evaluate(exec)?.into_graph_node_ref()?;
         let add_attribute = |exec: &mut ExecutionContext<G, QM>, name: Identifier, value: Value| {
             exec.graph[node]
@@ -465,10 +493,13 @@ impl AddGraphNodeAttribute {
 }
 
 impl CreateEdge {
-    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         let source = self.source.evaluate(exec)?.into_graph_node_ref()?;
         let sink = self.sink.evaluate(exec)?.into_graph_node_ref()?;
         let edge = match exec.graph[source].add_edge(sink) {
@@ -480,10 +511,13 @@ impl CreateEdge {
 }
 
 impl AddEdgeAttribute {
-    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         let source = self.source.evaluate(exec)?.into_graph_node_ref()?;
         let sink = self.sink.evaluate(exec)?.into_graph_node_ref()?;
         let add_attribute = |exec: &mut ExecutionContext<G, QM>, name: Identifier, value: Value| {
@@ -509,12 +543,12 @@ impl AddEdgeAttribute {
 }
 
 impl Scan {
-    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
-where
-        // for<'t> <QM::Nodes as NodeLending<'t>>::Node: Into<G::SNode>,
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
     {
         let match_string = self.value.evaluate(exec)?.into_string()?;
 
@@ -597,10 +631,13 @@ where
 }
 
 impl Print {
-    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         for value in &self.values {
             if let Expression::StringConstant(expr) = value {
                 eprint!("{}", expr.value);
@@ -615,12 +652,12 @@ impl Print {
 }
 
 impl If {
-    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
-where
-        // for<'t> <QM::Nodes as NodeLending<'t>>::Node: Into<G::SNode>,
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
     {
         for arm in &self.arms {
             let mut result = true;
@@ -656,10 +693,13 @@ where
 }
 
 impl Condition {
-    fn test<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn test<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
-    ) -> Result<bool, ExecutionError> {
+    ) -> Result<bool, ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         match self {
             Condition::Some { value, .. } => Ok(!value.evaluate(exec)?.is_null()),
             Condition::None { value, .. } => Ok(value.evaluate(exec)?.is_null()),
@@ -669,12 +709,12 @@ impl Condition {
 }
 
 impl ForIn {
-    fn execute<G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<(), ExecutionError>
-where
-        // for<'t> <QM::Nodes as NodeLending<'t>>::Node: Into<G::SNode>,
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
     {
         let values = self.value.evaluate(exec)?.into_list()?;
         let mut loop_locals = VariableMap::nested(exec.locals);
@@ -706,13 +746,12 @@ where
 }
 
 impl Expression {
-    fn evaluate<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn evaluate<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<Value, ExecutionError>
     where
-        G: WithSynNodes<SNode = QM::Simple>,
-        // for<'t> <QM::Nodes as NodeLending<'t>>::Node: Into<G::SNode>,
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
     {
         match self {
             Expression::FalseLiteral => Ok(Value::Boolean(false)),
@@ -733,28 +772,37 @@ impl Expression {
 }
 
 impl IntegerConstant {
-    fn evaluate<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn evaluate<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         _exec: &mut ExecutionContext<G, QM>,
-    ) -> Result<Value, ExecutionError> {
+    ) -> Result<Value, ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         Ok(Value::Integer(self.value))
     }
 }
 
 impl StringConstant {
-    fn evaluate<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn evaluate<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         _exec: &mut ExecutionContext<G, QM>,
-    ) -> Result<Value, ExecutionError> {
+    ) -> Result<Value, ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         Ok(Value::String(self.value.clone()))
     }
 }
 
 impl ListLiteral {
-    fn evaluate<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn evaluate<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
-    ) -> Result<Value, ExecutionError> {
+    ) -> Result<Value, ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         let elements = self
             .elements
             .iter()
@@ -765,10 +813,13 @@ impl ListLiteral {
 }
 
 impl ListComprehension {
-    fn evaluate<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn evaluate<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
-    ) -> Result<Value, ExecutionError> {
+    ) -> Result<Value, ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         let values = self.value.evaluate(exec)?.into_list()?;
         let mut elements = Vec::new();
         let mut loop_locals = VariableMap::nested(exec.locals);
@@ -797,10 +848,13 @@ impl ListComprehension {
 }
 
 impl SetLiteral {
-    fn evaluate<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn evaluate<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
-    ) -> Result<Value, ExecutionError> {
+    ) -> Result<Value, ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         let elements = self
             .elements
             .iter()
@@ -811,10 +865,13 @@ impl SetLiteral {
 }
 
 impl SetComprehension {
-    fn evaluate<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn evaluate<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
-    ) -> Result<Value, ExecutionError> {
+    ) -> Result<Value, ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         let values = self.value.evaluate(exec)?.into_list()?;
         let mut elements = BTreeSet::new();
         let mut loop_locals = VariableMap::nested(exec.locals);
@@ -843,12 +900,13 @@ impl SetComprehension {
 }
 
 impl Capture {
-    fn evaluate<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn evaluate<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<Value, ExecutionError>
     where
-        G: WithSynNodes<SNode = QM::Simple>,
+        for<'t, 'u> <QM as NodesLending<'u>>::Nodes:
+            NodeLending<'t, SNode = <G as NodeLending<'t>>::SNode>,
     {
         let mat = exec.mat;
         Ok(Value::from_nodes(
@@ -861,10 +919,13 @@ impl Capture {
 }
 
 impl Call {
-    fn evaluate<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn evaluate<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
-    ) -> Result<Value, ExecutionError> {
+    ) -> Result<Value, ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         for parameter in &self.parameters {
             let parameter = parameter.evaluate(exec)?;
             exec.function_parameters.push(parameter);
@@ -880,10 +941,13 @@ impl Call {
 }
 
 impl RegexCapture {
-    fn evaluate<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn evaluate<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
-    ) -> Result<Value, ExecutionError> {
+    ) -> Result<Value, ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         let capture = exec
             .current_regex_captures
             .get(self.match_index)
@@ -893,12 +957,13 @@ impl RegexCapture {
 }
 
 impl Variable {
-    fn evaluate<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn evaluate<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<Value, ExecutionError>
     where
-        G: WithSynNodes<SNode = QM::Simple>,
+        for<'t, 'u> <QM as NodesLending<'u>>::Nodes:
+            NodeLending<'t, SNode = <G as NodeLending<'t>>::SNode>,
         // for<'t> <QM::Nodes as NodeLending<'t>>::Node: Into<G::SNode>,
     {
         let value = self.get(exec)?;
@@ -907,16 +972,13 @@ impl Variable {
 }
 
 impl Variable {
-    fn get<'a, 'b, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn get<'a, 'b, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &'a mut ExecutionContext<G, QM>,
     ) -> Result<&'a Value, ExecutionError>
     where
-        // QM::Item: Into<G::SNode>,
-        // QM::Item: SyntaxNode,
-        // G::LErazing: Erzd<Original<'b> = G>,
-        // for<'t> <QM::Nodes as NodeLending<'t>>::Node: Into<G::SNode>,
-        G: WithSynNodes<SNode = QM::Simple>,
+        for<'t, 'u> <QM as NodesLending<'u>>::Nodes:
+            NodeLending<'t, SNode = <G as NodeLending<'t>>::SNode>,
     {
         match self {
             Variable::Scoped(variable) => variable.get(exec),
@@ -924,23 +986,29 @@ impl Variable {
         }
     }
 
-    fn add<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn add<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
         value: Value,
         mutable: bool,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         match self {
             Variable::Scoped(variable) => variable.add(exec, value, mutable),
             Variable::Unscoped(variable) => variable.add(exec, value, mutable),
         }
     }
 
-    fn set<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn set<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
         value: Value,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         match self {
             Variable::Scoped(variable) => variable.set(exec, value),
             Variable::Unscoped(variable) => variable.set(exec, value),
@@ -949,7 +1017,7 @@ impl Variable {
 }
 
 impl ScopedVariable {
-    fn get<'a, 'b, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn get<'a, 'b, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &'a mut ExecutionContext<G, QM>,
     ) -> Result<&'a Value, ExecutionError>
@@ -957,7 +1025,8 @@ impl ScopedVariable {
         // G::LErazing: Erzd<Original<'b> = G>,
         // G::SNode: SyntaxNode,
         // for<'t> <QM::Nodes as NodeLending<'t>>::Node: Into<G::SNode>,
-        G: WithSynNodes<SNode = QM::Simple>,
+        for<'t, 'u> <QM as NodesLending<'u>>::Nodes:
+            NodeLending<'t, SNode = <G as NodeLending<'t>>::SNode>,
     {
         let scope = self.scope.evaluate(exec)?;
         let scope = match scope {
@@ -982,10 +1051,7 @@ impl ScopedVariable {
         // search parent nodes
         if exec.inherited_variables.contains(&self.name) {
             use crate::graph::SimpleNode;
-            let mut parent = exec
-                .graph
-                .node(scope)
-                .and_then(|n| exec.mat.node(n.clone()).parent());
+            let mut parent = exec.graph.node(scope).and_then(|n| n.clone().parent());
             while let Some(scope) = parent {
                 if let Some(value) = exec
                     .scoped
@@ -1004,12 +1070,15 @@ impl ScopedVariable {
         )))
     }
 
-    fn add<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn add<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
         value: Value,
         mutable: bool,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         let scope = self.scope.evaluate(exec)?;
         let scope = match scope {
             Value::SyntaxNode(scope) => scope,
@@ -1026,11 +1095,14 @@ impl ScopedVariable {
             .map_err(|_| ExecutionError::DuplicateVariable(format!("{}", self)))
     }
 
-    fn set<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn set<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
         value: Value,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         let scope = self.scope.evaluate(exec)?;
         let scope = match scope {
             Value::SyntaxNode(scope) => scope,
@@ -1049,10 +1121,13 @@ impl ScopedVariable {
 }
 
 impl UnscopedVariable {
-    fn get<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn get<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &'a mut ExecutionContext<G, QM>,
-    ) -> Result<&'a Value, ExecutionError> {
+    ) -> Result<&'a Value, ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         if let Some(value) = exec.config.globals.get(&self.name) {
             Some(value)
         } else {
@@ -1061,12 +1136,15 @@ impl UnscopedVariable {
         .ok_or_else(|| ExecutionError::UndefinedVariable(format!("{}", self)))
     }
 
-    fn add<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn add<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
         value: Value,
         mutable: bool,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         if exec.config.globals.get(&self.name).is_some() {
             return Err(ExecutionError::DuplicateVariable(format!(
                 " global {}",
@@ -1078,11 +1156,14 @@ impl UnscopedVariable {
             .map_err(|_| ExecutionError::DuplicateVariable(format!(" local {}", self)))
     }
 
-    fn set<'a, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn set<'a, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
         value: Value,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), ExecutionError>
+    where
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
+    {
         if exec.config.globals.get(&self.name).is_some() {
             return Err(ExecutionError::CannotAssignImmutableVariable(format!(
                 " global {}",
@@ -1100,14 +1181,14 @@ impl UnscopedVariable {
 }
 
 impl Attribute {
-    fn execute<F, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<F, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
         add_attribute: &F,
     ) -> Result<(), ExecutionError>
     where
         F: Fn(&mut ExecutionContext<G, QM>, Identifier, Value) -> Result<(), ExecutionError>,
-        // G::LErazing: Erzd<Original<'a> = G>,
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
     {
         exec.cancellation_flag.check("executing attribute")?;
         let value = self.value.evaluate(exec)?;
@@ -1120,7 +1201,7 @@ impl Attribute {
 }
 
 impl AttributeShorthand {
-    fn execute<F, G: WithSynNodes<SNode = QM::Simple>, QM: QMatch>(
+    fn execute<F, G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
         add_attribute: &F,
@@ -1128,7 +1209,7 @@ impl AttributeShorthand {
     ) -> Result<(), ExecutionError>
     where
         F: Fn(&mut ExecutionContext<G, QM>, Identifier, Value) -> Result<(), ExecutionError>,
-        // G::LErazing: Erzd<Original<'a> = G>,
+        for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
     {
         let mut shorthand_locals = VariableMap::new();
         let mut shorthand_exec = ExecutionContext {
