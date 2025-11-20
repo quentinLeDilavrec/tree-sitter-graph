@@ -555,19 +555,15 @@ impl ast::CreateGraphNode {
         // for<'t> <QM::Nodes as graph::NodeLending<'t>>::Node: SyntaxNode,
         // for<'t, 'u> G::SNode: From<LendN<'t, 'u, QM>>,
     {
-        dbg!();
         let graph_node = exec.graph.add_graph_node();
         self.node
             .add_debug_attrs(&mut exec.graph[graph_node].attrs_mut(), exec.config)?;
-        dbg!();
         if let Some(match_node_attr) = &exec.config.match_node_attr {
             let node = exec
                 .mat
                 .nodes_for_capture_indexi(exec.full_match_file_capture_index)
                 .expect("missing capture for full match");
-            dbg!();
             let syn_node = exec.graph.add_syntax_node(node);
-            dbg!();
             exec.graph[graph_node]
                 .attrs_mut()
                 .add(match_node_attr.clone(), syn_node)
@@ -578,7 +574,6 @@ impl ast::CreateGraphNode {
                     ))
                 })?;
         }
-        dbg!();
         self.node.add_lazy(exec, graph_node.into(), false)
     }
 }
