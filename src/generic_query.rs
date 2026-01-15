@@ -102,7 +102,7 @@ mod ts {
             impl std::ops::Index<usize> for &A {
                 type Output = tree_sitter::CaptureQuantifier;
 
-                fn index(&self, index: usize) -> &Self::Output {
+                fn index(&self, index: usize) -> &tree_sitter::CaptureQuantifier {
                     self.0
                         .get(index)
                         .unwrap_or(&tree_sitter::CaptureQuantifier::One)
