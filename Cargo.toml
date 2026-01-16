@@ -43,3 +43,11 @@ tree-sitter-loader = { version = "0.24", optional = true }
 env_logger = "0.9"
 indoc = "1.0"
 tree-sitter-python = "=0.23.5"
+
+[lints.clippy]
+# in Rust it can be very tedious to reduce argument count without
+# running afoul of the borrow checker.
+too_many_arguments = "allow"
+
+uninlined_format_args = "allow"
+useless_format = "allow"
