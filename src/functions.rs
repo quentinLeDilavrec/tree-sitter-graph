@@ -300,7 +300,7 @@ pub mod stdlib {
     }
 
     pub mod syntax {
-        use crate::graph::{NodeLending, SimpleNode, SyntaxNode, SyntaxNodeExt, WithSynNodes};
+        use crate::graph::{NodeLending, SyntaxNode, SyntaxNodeExt, WithSynNodes};
 
         use super::*;
 
@@ -573,7 +573,7 @@ pub mod stdlib {
             ) -> Result<Value, ExecutionError> {
                 let format = parameters.param()?.into_string()?;
                 let mut result = String::new();
-                let mut it = format.chars().enumerate().into_iter();
+                let mut it = format.chars().enumerate();
                 while let Some((_, c)) = it.next() {
                     match c {
                         '{' => match it.next() {

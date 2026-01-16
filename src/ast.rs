@@ -404,12 +404,10 @@ impl std::fmt::Display for If {
             if first {
                 first = false;
                 write!(f, "if {} {{ ... }}", DisplayConditions(&arm.conditions))?;
+            } else if !arm.conditions.is_empty() {
+                write!(f, " elif {} {{ ... }}", DisplayConditions(&arm.conditions))?;
             } else {
-                if !arm.conditions.is_empty() {
-                    write!(f, " elif {} {{ ... }}", DisplayConditions(&arm.conditions))?;
-                } else {
-                    write!(f, " else {{ ... }}")?;
-                }
+                write!(f, " else {{ ... }}")?;
             }
         }
         write!(f, " at {}", self.location)
@@ -810,7 +808,7 @@ impl std::fmt::Display for StringConstant {
 
 impl From<String> for Expression {
     fn from(value: String) -> Expression {
-        Expression::StringConstant(StringConstant { value }.into())
+        Expression::StringConstant(StringConstant { value })
     }
 }
 
@@ -829,6 +827,12 @@ impl From<ScopedVariable> for Expression {
 /// Attribute shorthands
 #[derive(Debug, Eq, PartialEq)]
 pub struct AttributeShorthands(HashMap<Identifier, AttributeShorthand>);
+
+impl Default for AttributeShorthands {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl AttributeShorthands {
     pub fn new() -> Self {

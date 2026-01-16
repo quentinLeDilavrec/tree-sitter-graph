@@ -145,7 +145,7 @@ where
     type Node = N;
 
     fn node(&self, r: SyntaxNodeRef) -> Option<<Self as NodeLending<'_>>::SNode> {
-        self.syntax_nodes.get(&r.index).map(|x| x.clone())
+        self.syntax_nodes.get(&r.index).cloned()
     }
 
     fn add_graph_node(&mut self) -> GraphNodeRef {
@@ -200,7 +200,7 @@ where
     }
 }
 
-pub type NNN<'t, 'u, S: for<'a> NodesLending<'a>> =
+pub type NNN<'t, 'u, S> =
     <<S as NodesLending<'t>>::Nodes as NodeLending<'u>>::SNode;
 
 pub trait QMatch: crate::QueryWithLang + for<'a> NodesLending<'a> {
@@ -440,7 +440,7 @@ impl<'a> Serialize for SerializeGraphNodeEdges<'a> {
         let edges = self.0;
         let mut seq = serializer.serialize_seq(Some(edges.len()))?;
         for element in edges {
-            seq.serialize_element(&SerializeGraphNodeEdge(&element))?;
+            seq.serialize_element(&SerializeGraphNodeEdge(element))?;
         }
         seq.end()
     }
@@ -480,6 +480,12 @@ pub struct Attributes {
     values: HashMap<Identifier, Value>,
 }
 
+impl Default for Attributes {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Attributes {
     /// Creates a new, empty set of attributes.
     pub fn new() -> Attributes {
@@ -495,7 +501,7 @@ impl Attributes {
             Entry::Occupied(mut o) => {
                 let value = value.into();
                 if o.get() != &value {
-                    Err(o.insert(value.into()))
+                    Err(o.insert(value))
                 } else {
                     Ok(())
                 }
@@ -524,7 +530,7 @@ impl Attributes {
 impl std::fmt::Display for Attributes {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let mut keys = self.values.keys().collect::<Vec<_>>();
-        keys.sort_by(|a, b| a.cmp(b));
+        keys.sort();
         for key in &keys {
             let value = &self.values[*key];
             writeln!(f, "  {}: {:?}", key, value)?;

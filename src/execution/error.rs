@@ -13,7 +13,6 @@ use crate::ast::Statement;
 use crate::execution::CancellationError;
 use crate::graph::SyntaxNode;
 use crate::parse_error::Excerpt;
-use crate::GenQuery;
 use crate::Location;
 
 /// An error that can occur while executing a graph DSL file

@@ -78,7 +78,7 @@ impl<V> Variables<V> for VariableMap<'_, V> {
         self.values
             .get(name)
             .map(|v| &v.value)
-            .or_else(|| self.context.as_ref().map(|p| p.get(name)).flatten())
+            .or_else(|| self.context.as_ref().and_then(|p| p.get(name)))
     }
 }
 
@@ -124,6 +124,12 @@ pub struct Globals<'a> {
     values: HashMap<Identifier, Value>,
 }
 
+impl<'a> Default for Globals<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> Globals<'a> {
     /// Creates a new, empty variable environment.
     pub fn new() -> Self {
@@ -158,7 +164,7 @@ impl<'a> Globals<'a> {
     pub fn get(&self, name: &Identifier) -> Option<&Value> {
         self.values
             .get(name)
-            .or_else(|| self.context.as_ref().map(|p| p.get(name)).flatten())
+            .or_else(|| self.context.as_ref().and_then(|p| p.get(name)))
     }
 
     /// Remove a variable from this enviroment, if it exists.

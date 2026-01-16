@@ -66,6 +66,12 @@ pub struct Ctx<'var> {
     prev_element_debug_info: std::collections::HashMap<GraphElementKey, DebugInfo>,
 }
 
+impl Default for Ctx<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Ctx<'_> {
     pub fn new() -> Self {
         Self {
@@ -181,7 +187,7 @@ impl Ctx<'_> {
             shorthands,
             cancellation_flag,
         };
-        execute_stmt_lazy(&statement, &mut exec).with_context(|| exec.error_context.into())
+        execute_stmt_lazy(statement, &mut exec).with_context(|| exec.error_context.into())
     }
 }
 
@@ -362,7 +368,7 @@ pub struct ExecutionContext<
 }
 
 /// Context for evaluation, which evaluates the lazy graph to build the actual graph
-pub(self) struct EvaluationContext<'a, G> {
+ struct EvaluationContext<'a, G> {
     pub graph: &'a mut G,
     pub functions: &'a Functions<G>,
     pub store: &'a LazyStore,
@@ -400,12 +406,12 @@ impl ast::Stanza<Query> {
         let current_regex_captures = vec![];
         ctx.locals.clear();
         let node = mat
-            .nodes_for_capture_indexi(self.full_match_file_capture_index as u32)
+            .nodes_for_capture_indexi(self.full_match_file_capture_index)
             .expect("missing capture for full match");
         debug!("match {:?} at {}", node, self.range.start);
         trace!("{{");
         for statement in &self.statements {
-            let error_context = StatementContext::new(&statement, &self, &node);
+            let error_context = StatementContext::new(statement, self, &node);
             ctx.exec(
                 graph,
                 inherited_variables,
@@ -449,7 +455,7 @@ impl<Q, I: Copy> ast::Stanza<Q, I> {
             .expect("missing capture for full match");
         trace!("{{");
         for statement in &self.statements {
-            let error_context = StatementContext::new(&statement, &self, &node);
+            let error_context = StatementContext::new(statement, self, &node);
             ctx.exec(
                 graph,
                 inherited_variables,
@@ -564,7 +570,7 @@ impl ast::CreateGraphNode {
     {
         let graph_node = exec.graph.add_graph_node();
         self.node
-            .add_debug_attrs(&mut exec.graph[graph_node].attrs_mut(), exec.config)?;
+            .add_debug_attrs(exec.graph[graph_node].attrs_mut(), exec.config)?;
         if let Some(match_node_attr) = &exec.config.match_node_attr {
             let node = exec
                 .mat
@@ -1046,9 +1052,9 @@ type LendM<'v, 'w, T: MatchesLending<'v>> = <T::Matches as MatchLending<'w>>::Ma
 // type LendN<'t, 'u, QM: QMatch> = LendS<'t, <QM as NodesLending<'u>>::Nodes>;
 // <<QM as graph::NodesLending<'u>>::Nodes as graph::NodeLending<'t>>::SNode;
 
-type LendNS<'u, QM: QMatch> = <QM as NodesLending<'u>>::Nodes;
+type LendNS<'u, QM> = <QM as NodesLending<'u>>::Nodes;
 
-type LendS<'t, T: NodeLending<'t>> = <T as NodeLending<'t>>::SNode;
+type LendS<'t, T> = <T as NodeLending<'t>>::SNode;
 
 impl ast::Capture {
     fn evaluate_lazy<'a, G: WithSynNodes, QM: QMatch>(
@@ -1195,7 +1201,7 @@ impl ast::UnscopedVariable {
         if let Some(value) = exec.config.globals.get(&self.name) {
             Some(value.clone().into())
         } else {
-            exec.locals.get(&self.name).map(|value| value.clone())
+            exec.locals.get(&self.name).cloned()
         }
         .ok_or_else(|| ExecutionError::UndefinedVariable(format!("{}", self)))
     }
@@ -1251,7 +1257,7 @@ impl ast::Attribute {
         add_attribute: &mut F,
     ) -> Result<(), ExecutionError>
     where
-        F: FnMut(LazyAttribute) -> (),
+        F: FnMut(LazyAttribute),
         for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
     {
         exec.cancellation_flag.check("executing attribute")?;
@@ -1273,7 +1279,7 @@ impl ast::AttributeShorthand {
         value: LazyValue,
     ) -> Result<(), ExecutionError>
     where
-        F: FnMut(LazyAttribute) -> (),
+        F: FnMut(LazyAttribute),
         for<'t, 'u> LendNS<'u, QM>: graph::NodeLending<'t, SNode = LendS<'t, G>>,
     {
         let mut shorthand_locals = VariableMap::new();

@@ -9,12 +9,8 @@ use indoc::indoc;
 use tree_sitter::Parser;
 use tree_sitter_graph::ast::File;
 use tree_sitter_graph::functions::Functions;
-use tree_sitter_graph::graph::Graph;
-use tree_sitter_graph::graph::GraphErazing;
-use tree_sitter_graph::graph::TSNodeErazing;
 use tree_sitter_graph::ExecutionConfig;
 use tree_sitter_graph::ExecutionError;
-use tree_sitter_graph::MyTSNode;
 use tree_sitter_graph::NoCancellation;
 use tree_sitter_graph::Variables;
 
@@ -55,7 +51,7 @@ fn check_execution(python_source: &str, dsl_source: &str, expected_graph: &str) 
 }
 
 fn fail_execution(python_source: &str, dsl_source: &str) {
-    if let Ok(_) = execute(python_source, dsl_source) {
+    if execute(python_source, dsl_source).is_ok() {
         panic!("Execution succeeded unexpectedly");
     }
 }

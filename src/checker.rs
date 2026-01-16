@@ -210,12 +210,12 @@ impl ast::Stanza<Query> {
         let all_captures = self
             .query
             .capture_names()
-            .into_iter()
+            .iter()
             .filter(|cn| {
                 self.query
                     .capture_index_for_name(cn)
                     .expect("capture should have index")
-                    != self.full_match_stanza_capture_index as u32
+                    != self.full_match_stanza_capture_index
             })
             .map(|cn| Identifier::from(*cn))
             .collect::<HashSet<_>>();
@@ -419,7 +419,7 @@ impl ast::Scan {
             // regex "\b" matches empty strings within a larger non-empty one.
             // Therefore, there is also a runtime check that checks that a match was
             // non-empty. This is all to prevent non-termination of scan.
-            if let Some(_) = arm.regex.captures("") {
+            if arm.regex.captures("").is_some() {
                 return Err(CheckError::NullableRegex(
                     arm.regex.to_string(),
                     arm.location,
@@ -914,29 +914,29 @@ impl ast::Attribute {
 //-----------------------------------------------------------------------------
 // Result Conversions
 
-impl Into<StatementResult> for ExpressionResult {
-    fn into(self) -> StatementResult {
+impl From<ExpressionResult> for StatementResult {
+    fn from(val: ExpressionResult) -> Self {
         StatementResult {
-            used_captures: self.used_captures,
+            used_captures: val.used_captures,
         }
     }
 }
 
-impl Into<ExpressionResult> for &VariableResult {
-    fn into(self) -> ExpressionResult {
+impl From<&VariableResult> for ExpressionResult {
+    fn from(val: &VariableResult) -> Self {
         ExpressionResult {
-            is_local: self.is_local,
-            quantifier: self.quantifier,
+            is_local: val.is_local,
+            quantifier: val.quantifier,
             used_captures: HashSet::default(),
         }
     }
 }
 
-impl Into<VariableResult> for ExpressionResult {
-    fn into(self) -> VariableResult {
+impl From<ExpressionResult> for VariableResult {
+    fn from(val: ExpressionResult) -> Self {
         VariableResult {
-            is_local: self.is_local,
-            quantifier: self.quantifier,
+            is_local: val.is_local,
+            quantifier: val.quantifier,
         }
     }
 }

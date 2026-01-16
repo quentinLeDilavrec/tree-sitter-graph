@@ -865,8 +865,7 @@ fn can_parse_if_elif() {
                         }
                         .into(),
                         location: Location { row: 3, column: 13 },
-                    }
-                    .into(),],
+                    },],
                     statements: vec![Print {
                         values: vec![StringConstant {
                             value: "x is null".into()
@@ -1349,8 +1348,7 @@ fn can_parse_list_global() {
             variable: UnscopedVariable {
                 name: "root".into(),
                 location: Location { row: 4, column: 14 },
-            }
-            .into(),
+            },
             value: UnscopedVariable {
                 name: "roots".into(),
                 location: Location { row: 4, column: 22 },
@@ -1631,5 +1629,5 @@ fn can_parse_inherit_directives() {
     "#;
     let file =
         File::from_str(tree_sitter_python::LANGUAGE.into(), source).expect("parse to succeed");
-    assert!(file.inherited_variables.contains("scope".into()));
+    assert!(file.inherited_variables.contains("scope"));
 }

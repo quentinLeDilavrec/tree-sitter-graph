@@ -98,11 +98,11 @@ impl File<tree_sitter::Query> {
                             file_query.capture_quantifiers(mat.pattern_index())[index as usize];
                         (*name, quantifier, index)
                     })
-                    .filter(|c| c.2 != stanza.full_match_file_capture_index as u32)
+                    .filter(|c| c.2 != stanza.full_match_file_capture_index)
                     .collect();
                 visit(Match {
                     mat,
-                    full_capture_index: stanza.full_match_file_capture_index as u32,
+                    full_capture_index: stanza.full_match_file_capture_index,
                     named_captures,
                     query_location: stanza.range.start,
                 })
@@ -121,11 +121,11 @@ impl File<tree_sitter::Query> {
                         let quantifier = stanza.query.capture_quantifiers(0)[index as usize];
                         (*name, quantifier, index)
                     })
-                    .filter(|c| c.2 != stanza.full_match_stanza_capture_index as u32)
+                    .filter(|c| c.2 != stanza.full_match_stanza_capture_index)
                     .collect();
                 visit(Match {
                     mat,
-                    full_capture_index: stanza.full_match_stanza_capture_index as u32,
+                    full_capture_index: stanza.full_match_stanza_capture_index,
                     named_captures,
                     query_location: stanza.range.start,
                 })
@@ -155,15 +155,13 @@ impl<Q: crate::GenQuery, I> File<Q, I> {
                     }
                 }
                 Some(value) => {
-                    if global.quantifier == CaptureQuantifier::ZeroOrMore
-                        || global.quantifier == CaptureQuantifier::OneOrMore
-                    {
-                        if value.as_list().is_err() {
+                    if (global.quantifier == CaptureQuantifier::ZeroOrMore
+                        || global.quantifier == CaptureQuantifier::OneOrMore)
+                        && value.as_list().is_err() {
                             return Err(ExecutionError::ExpectedList(
                                 global.name.as_str().to_string(),
                             ));
                         }
-                    }
                 }
             }
         }
@@ -250,7 +248,7 @@ impl Stanza<tree_sitter::Query> {
                 .map(|name| {
                     let index = self
                         .query
-                        .capture_index_for_name(*name)
+                        .capture_index_for_name(name)
                         .expect("missing index for capture");
                     let quantifier = self.query.capture_quantifiers(0)[index as usize];
                     (*name, quantifier, index)
@@ -314,7 +312,7 @@ impl<'a, QM: QMatch> Match<'a, QM> {
     /// Return the top-level matched node.
     pub fn full_capture(&self) -> crate::graph::NNN<'_, '_, QM> {
         self.mat
-            .nodes_for_capture_indexi((self.full_capture_index as u32).into())
+            .nodes_for_capture_indexi(self.full_capture_index.into())
             .expect("missing full capture")
     }
 
@@ -327,7 +325,7 @@ impl<'a, QM: QMatch> Match<'a, QM> {
             (
                 c.0.to_string(),
                 c.1,
-                self.mat.nodes_for_capture_index((c.2 as u32).into()),
+                self.mat.nodes_for_capture_index(c.2.into()),
             )
         })
     }
@@ -432,7 +430,7 @@ impl Value {
                 syntax_nodes.into()
             }
             CaptureQuantifier::ZeroOrOne => match nodes.next() {
-                None => Value::Null.into(),
+                None => Value::Null,
                 Some(node) => {
                     let syntax_node = graph.add_syntax_node(node);
                     syntax_node.into()

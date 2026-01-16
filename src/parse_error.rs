@@ -113,7 +113,7 @@ impl std::fmt::Display for ParseErrorDisplay<'_> {
             }
         };
         if node.byte_range().is_empty() {
-            writeln!(f, "")?;
+            writeln!(f)?;
         } else {
             let end_byte = self.source[node.byte_range()]
                 .chars()
@@ -146,7 +146,7 @@ impl std::fmt::Display for ParseErrorDisplayPretty<'_> {
             }
         };
         if node.byte_range().is_empty() {
-            writeln!(f, "")?;
+            writeln!(f)?;
         } else {
             let start_column = node.start_position().column;
             let end_column = node.start_position().column
@@ -203,11 +203,7 @@ fn find_errors<'tree>(tree: &'tree Tree, errors: &mut Vec<ParseError<'tree>>, fi
                 break;
             }
         } else {
-            if cursor.goto_first_child() {
-                did_visit_children = false;
-            } else {
-                did_visit_children = true;
-            }
+            did_visit_children = !cursor.goto_first_child();
         }
     }
     cursor.reset(tree.root_node());
@@ -271,7 +267,7 @@ impl TreeWithParseErrorOption {
         find_errors(&tree, &mut errors, true);
         Self {
             error: unsafe { std::mem::transmute(errors.into_iter().next()) },
-            tree: tree,
+            tree,
         }
     }
 }
@@ -324,7 +320,7 @@ impl TreeWithParseErrorVec {
         find_errors(&tree, &mut errors, false);
         TreeWithParseErrorVec {
             errors: unsafe { std::mem::transmute(errors) },
-            tree: tree,
+            tree,
         }
     }
 }
@@ -421,7 +417,7 @@ impl<'a> std::fmt::Display for Excerpt<'a> {
                 underline_style(&"^".repeat(self.columns.len())),
             )?;
         } else {
-            writeln!(f, "{}{}", " ".repeat(self.indent), "<missing source>",)?;
+            writeln!(f, "{}<missing source>", " ".repeat(self.indent),)?;
         }
         Ok(())
     }

@@ -249,7 +249,7 @@ impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
         self.chars
             .peek()
             .copied()
-            .ok_or_else(|| ParseError::UnexpectedEOF(self.location))
+            .ok_or(ParseError::UnexpectedEOF(self.location))
     }
 
     fn try_peek(&mut self) -> Option<char> {
@@ -260,7 +260,7 @@ impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
         let ch = self
             .chars
             .next()
-            .ok_or_else(|| ParseError::UnexpectedEOF(self.location))?;
+            .ok_or(ParseError::UnexpectedEOF(self.location))?;
         self.offset += ch.len_utf8();
         self.location.advance(ch);
         Ok(ch)
@@ -277,12 +277,10 @@ impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
                 if ch == '\n' {
                     in_comment = false;
                 }
-            } else {
-                if ch == ';' {
-                    in_comment = true;
-                } else if !ch.is_whitespace() {
-                    return;
-                }
+            } else if ch == ';' {
+                in_comment = true;
+            } else if !ch.is_whitespace() {
+                return;
             }
             self.skip().unwrap();
         }
@@ -315,15 +313,15 @@ impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
     pub fn parse_into_file(&mut self, file: &mut ast::File<ExtQ::Query>) -> Result<(), ParseError> {
         self.consume_whitespace();
         while self.try_peek().is_some() {
-            if let Ok(_) = self.consume_token("attribute") {
+            if self.consume_token("attribute").is_ok() {
                 self.consume_whitespace();
                 let shorthand = self.parse_shorthand()?;
                 file.shorthands.add(shorthand);
-            } else if let Ok(_) = self.consume_token("global") {
+            } else if self.consume_token("global").is_ok() {
                 self.consume_whitespace();
                 let global = self.parse_global()?;
                 file.globals.push(global);
-            } else if let Ok(_) = self.consume_token("inherit") {
+            } else if self.consume_token("inherit").is_ok() {
                 self.consume_whitespace();
                 self.consume_token(".")?;
                 let name = self.parse_identifier("inherit")?;
@@ -345,7 +343,7 @@ impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
         let quantifier = self.parse_quantifier()?;
         let mut default = None;
         self.consume_whitespace();
-        if let Ok(_) = self.consume_token("=") {
+        if self.consume_token("=").is_ok() {
             self.consume_whitespace();
             default = Some(self.parse_string()?);
         }
@@ -437,8 +435,7 @@ impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
         }
         let full_match_capture_index = query
             .capture_index_for_name(FULL_MATCH)
-            .expect("missing capture index for full match")
-            as u32;
+            .expect("missing capture index for full match");
         Ok((query, full_match_capture_index))
     }
 
@@ -626,7 +623,7 @@ impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
                 let pattern_location = self.location;
                 let pattern = self.parse_string()?;
                 let regex = Regex::new(&pattern)
-                    .map_err(|_| ParseError::InvalidRegex(pattern.into(), pattern_location))?;
+                    .map_err(|_| ParseError::InvalidRegex(pattern, pattern_location))?;
                 self.consume_whitespace();
                 let statements = self.parse_statements()?;
                 arms.push(ast::ScanArm {
@@ -661,7 +658,7 @@ impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
 
             // elif
             let mut location = self.location;
-            while let Ok(_) = self.consume_token("elif") {
+            while self.consume_token("elif").is_ok() {
                 self.consume_whitespace();
                 let conditions = self.parse_conditions()?;
                 self.consume_whitespace();
@@ -678,7 +675,7 @@ impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
 
             // else
             let location = self.location;
-            if let Ok(_) = self.consume_token("else") {
+            if self.consume_token("else").is_ok() {
                 let conditions = vec![];
                 self.consume_whitespace();
                 let statements = self.parse_statements()?;
@@ -739,11 +736,11 @@ impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
 
     fn parse_condition(&mut self) -> Result<ast::Condition, ParseError> {
         let location = self.location;
-        let condition = if let Ok(_) = self.consume_token("some") {
+        let condition = if self.consume_token("some").is_ok() {
             self.consume_whitespace();
             let value = self.parse_expression()?;
             ast::Condition::Some { value, location }
-        } else if let Ok(_) = self.consume_token("none") {
+        } else if self.consume_token("none").is_ok() {
             self.consume_whitespace();
             let value = self.parse_expression()?;
             ast::Condition::None { value, location }
@@ -866,15 +863,15 @@ impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
         let location = self.location;
         self.consume_token("[")?;
         self.consume_whitespace();
-        if let Ok(_) = self.consume_token("]") {
+        if self.consume_token("]").is_ok() {
             return Ok(ast::ListLiteral { elements: vec![] }.into());
         }
         let first_element = self.parse_expression()?;
         self.consume_whitespace();
-        if let Ok(_) = self.consume_token("]") {
+        if self.consume_token("]").is_ok() {
             let elements = vec![first_element];
             Ok(ast::ListLiteral { elements }.into())
-        } else if let Ok(_) = self.consume_token(",") {
+        } else if self.consume_token(",").is_ok() {
             self.consume_whitespace();
             let mut elements = self.parse_sequence(']')?;
             self.consume_whitespace();
@@ -905,15 +902,15 @@ impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
         let location = self.location;
         self.consume_token("{")?;
         self.consume_whitespace();
-        if let Ok(_) = self.consume_token("}") {
+        if self.consume_token("}").is_ok() {
             return Ok(ast::SetLiteral { elements: vec![] }.into());
         }
         let first_element = self.parse_expression()?;
         self.consume_whitespace();
-        if let Ok(_) = self.consume_token("}") {
+        if self.consume_token("}").is_ok() {
             let elements = vec![first_element];
             Ok(ast::SetLiteral { elements }.into())
-        } else if let Ok(_) = self.consume_token(",") {
+        } else if self.consume_token(",").is_ok() {
             self.consume_whitespace();
             let mut elements = self.parse_sequence('}')?;
             self.consume_whitespace();
@@ -961,8 +958,7 @@ impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
             file_capture_index: usize::MAX,   // set in checker
             stanza_capture_index: usize::MAX, // set in checker
             location,
-        }
-        .into())
+        })
     }
 
     fn parse_integer_constant(&mut self) -> Result<ast::Expression, ParseError> {
@@ -979,7 +975,7 @@ impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
         self.consume_token("#")?;
         let literal = self.parse_name("literal")?;
         if literal == "false" {
-            return Ok(ast::Expression::FalseLiteral);
+            Ok(ast::Expression::FalseLiteral)
         } else if literal == "null" {
             return Ok(ast::Expression::NullLiteral);
         } else if literal == "true" {
@@ -1002,7 +998,7 @@ impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
             return Err(ParseError::InvalidRegexCapture(regex_capture_location));
         }
         let match_index = usize::from_str_radix(&self.source[start..end], 10).unwrap();
-        Ok(ast::RegexCapture { match_index }.into())
+        Ok(ast::RegexCapture { match_index })
     }
 
     fn parse_attributes(&mut self) -> Result<Vec<ast::Attribute>, ParseError> {

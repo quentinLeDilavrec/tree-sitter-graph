@@ -354,7 +354,7 @@ impl<'cursor, 'tree> crate::graph::QMatch for MyQueryMatch<'cursor, 'tree> {
 impl<'tree> Clone for MyTSNode<'tree> {
     fn clone(&self) -> Self {
         Self {
-            node: self.node.clone(),
+            node: self.node,
             source: self.source,
         }
     }

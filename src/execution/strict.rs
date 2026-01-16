@@ -11,7 +11,6 @@ use std::collections::HashSet;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::Query;
 use tree_sitter::QueryCursor;
-use tree_sitter::QueryMatch;
 use tree_sitter::Tree;
 
 use crate::ast::AddEdgeAttribute;
@@ -205,9 +204,9 @@ impl<Q: GenQuery, I: Copy> File<Q, I> {
 
 type LendM<'v, 'w, T: MatchesLending<'v>> = <T::Matches as MatchLending<'w>>::Match;
 
-type LendNS<'u, QM: QMatch> = <QM as NodesLending<'u>>::Nodes;
+type LendNS<'u, QM> = <QM as NodesLending<'u>>::Nodes;
 
-type LendS<'t, T: NodeLending<'t>> = <T as NodeLending<'t>>::SNode;
+type LendS<'t, T> = <T as NodeLending<'t>>::SNode;
 
 /// State that is threaded through the execution
 struct ExecutionContext<'a, 'g, 's, 'b, G, QM: QMatch, I = <QM as QueryWithLang>::I>
@@ -269,9 +268,9 @@ impl Stanza<Query> {
         for statement in &self.statements {
             let error_context = {
                 let node = mat
-                    .nodes_for_capture_indexi(self.full_match_stanza_capture_index as u32)
+                    .nodes_for_capture_indexi(self.full_match_stanza_capture_index)
                     .expect("missing full capture");
-                StatementContext::new(&statement, &self, &node)
+                StatementContext::new(statement, self, &node)
             };
             let mut exec = ExecutionContext {
                 graph,
@@ -280,14 +279,14 @@ impl Stanza<Query> {
                 scoped,
                 current_regex_captures,
                 function_parameters,
-                mat: mat,
+                mat,
                 full_match_stanza_capture_index: self.full_match_stanza_capture_index,
                 error_context,
                 inherited_variables,
                 shorthands,
                 cancellation_flag,
             };
-            execute_stmt(&statement, &mut exec).with_context(|| exec.error_context.into())?;
+            execute_stmt(statement, &mut exec).with_context(|| exec.error_context.into())?;
         }
         Ok(())
     }
@@ -319,7 +318,7 @@ impl<Q, I: Copy> Stanza<Q, I> {
                 let node = mat
                     .nodes_for_capture_indexi(self.full_match_stanza_capture_index)
                     .expect("missing full capture");
-                StatementContext::new(&statement, &self, &node)
+                StatementContext::new(statement, self, &node)
             };
             let mut exec = ExecutionContext {
                 graph,
@@ -328,14 +327,14 @@ impl<Q, I: Copy> Stanza<Q, I> {
                 scoped,
                 current_regex_captures,
                 function_parameters,
-                mat: mat,
+                mat,
                 full_match_stanza_capture_index: self.full_match_stanza_capture_index,
                 error_context,
                 inherited_variables,
                 shorthands,
                 cancellation_flag,
             };
-            execute_stmt(&statement, &mut exec).with_context(|| exec.error_context.into())?;
+            execute_stmt(statement, &mut exec).with_context(|| exec.error_context.into())?;
         }
         Ok(())
     }
@@ -451,7 +450,7 @@ impl CreateGraphNode {
     {
         let graph_node = exec.graph.add_graph_node();
         self.node
-            .add_debug_attrs(&mut exec.graph[graph_node].attrs_mut(), exec.config)?;
+            .add_debug_attrs(exec.graph[graph_node].attrs_mut(), exec.config)?;
         if let Some(match_node_attr) = &exec.config.match_node_attr {
             let node = exec
                 .mat
@@ -921,8 +920,7 @@ impl Capture {
             exec.graph,
             mat.nodes_for_capture_index((self.stanza_capture_index as u32).into()),
             self.quantifier,
-        )
-        .into())
+        ))
     }
 }
 

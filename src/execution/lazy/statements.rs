@@ -177,9 +177,9 @@ where {
                 GraphElementKey::NodeAttribute(node, attribute.name.clone()),
                 self.debug_info.clone(),
             );
-            if let Err(_) = exec.graph[node]
+            if exec.graph[node]
                 .attrs_mut()
-                .add(attribute.name.clone(), value)
+                .add(attribute.name.clone(), value).is_err()
             {
                 return Err(ExecutionError::DuplicateAttribute(format!(
                     "{} on {}",
@@ -313,7 +313,7 @@ where {
                 GraphElementKey::EdgeAttribute(source, sink, attribute.name.clone()),
                 self.debug_info.clone(),
             );
-            if let Err(_) = edge.attributes.add(attribute.name.clone(), value) {
+            if edge.attributes.add(attribute.name.clone(), value).is_err() {
                 return Err(ExecutionError::DuplicateAttribute(format!(
                     "{} on edge ({} -> {})",
                     attribute.name, source, sink,
@@ -376,7 +376,7 @@ where {
                 }
             }
         }
-        eprintln!("");
+        eprintln!();
         Ok(())
     }
 }
