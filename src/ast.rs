@@ -850,8 +850,13 @@ impl AttributeShorthands {
     pub fn iter(&self) -> impl Iterator<Item = &AttributeShorthand> {
         self.0.values()
     }
+}
 
-    pub fn into_iter(self) -> impl Iterator<Item = AttributeShorthand> {
+impl IntoIterator for AttributeShorthands {
+    type Item = AttributeShorthand;
+    type IntoIter = std::collections::hash_map::IntoValues<Identifier, AttributeShorthand>;
+
+    fn into_iter(self) -> Self::IntoIter {
         self.0.into_values()
     }
 }

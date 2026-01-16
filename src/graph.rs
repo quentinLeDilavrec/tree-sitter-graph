@@ -200,8 +200,7 @@ where
     }
 }
 
-pub type NNN<'t, 'u, S> =
-    <<S as NodesLending<'t>>::Nodes as NodeLending<'u>>::SNode;
+pub type NNN<'t, 'u, S> = <<S as NodesLending<'t>>::Nodes as NodeLending<'u>>::SNode;
 
 pub trait QMatch: crate::QueryWithLang + for<'a> NodesLending<'a> {
     type Simple: Clone
@@ -568,10 +567,7 @@ pub enum Value {
 impl Value {
     /// Check if this value is null
     pub fn is_null(&self) -> bool {
-        match self {
-            Value::Null => true,
-            _ => false,
-        }
+        matches!(self, Value::Null)
     }
 
     /// Coerces this value into a boolean, returning an error if it's some other type of value.
@@ -636,14 +632,14 @@ impl Value {
 
     /// Coerces this value into a graph node reference, returning an error if it's some other type
     /// of value.
-    pub fn into_graph_node_ref<'a, 'tree>(self) -> Result<GraphNodeRef, ExecutionError> {
+    pub fn into_graph_node_ref(self) -> Result<GraphNodeRef, ExecutionError> {
         match self {
             Value::GraphNode(node) => Ok(node),
             _ => Err(ExecutionError::ExpectedGraphNode(format!("got {}", self))),
         }
     }
 
-    pub fn as_graph_node_ref<'a, 'tree>(&self) -> Result<GraphNodeRef, ExecutionError> {
+    pub fn as_graph_node_ref(&self) -> Result<GraphNodeRef, ExecutionError> {
         match self {
             Value::GraphNode(node) => Ok(*node),
             _ => Err(ExecutionError::ExpectedGraphNode(format!("got {}", self))),
@@ -652,14 +648,14 @@ impl Value {
 
     /// Coerces this value into a syntax node reference, returning an error if it's some other type
     /// of value.
-    pub fn into_syntax_node_ref<'a, 'tree>(self) -> Result<SyntaxNodeRef, ExecutionError> {
+    pub fn into_syntax_node_ref(self) -> Result<SyntaxNodeRef, ExecutionError> {
         match self {
             Value::SyntaxNode(node) => Ok(node),
             _ => Err(ExecutionError::ExpectedSyntaxNode(format!("got {}", self))),
         }
     }
 
-    pub fn as_syntax_node_ref<'a, 'tree>(&self) -> Result<SyntaxNodeRef, ExecutionError> {
+    pub fn as_syntax_node_ref(&self) -> Result<SyntaxNodeRef, ExecutionError> {
         match self {
             Value::SyntaxNode(node) => Ok(*node),
             _ => Err(ExecutionError::ExpectedSyntaxNode(format!("got {}", self))),

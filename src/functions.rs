@@ -290,11 +290,7 @@ pub mod stdlib {
         ) -> Result<Value, ExecutionError> {
             let parameter = parameters.param()?;
             parameters.finish()?;
-            let result = if let Value::Null = parameter {
-                true
-            } else {
-                false
-            };
+            let result = matches!(parameter, Value::Null);
             Ok(result.into())
         }
     }

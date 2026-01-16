@@ -473,7 +473,7 @@ fn can_parse_print() {
         (identifier)
         {
           print "x =", 5
-        }    
+        }
     "#;
     let file =
         File::from_str(tree_sitter_python::LANGUAGE.into(), source).expect("Cannot parse file");
@@ -511,7 +511,7 @@ fn cannot_parse_nullable_regex() {
           node n
         }
     "#;
-    if let Ok(_) = File::from_str(tree_sitter_python::LANGUAGE.into(), source) {
+    if File::from_str(tree_sitter_python::LANGUAGE.into(), source).is_ok() {
         panic!("Parse succeeded unexpectedly");
     }
 }
@@ -982,7 +982,7 @@ fn cannot_parse_if_some_list_capture() {
           }
         }
     "#;
-    if let Ok(_) = File::from_str(tree_sitter_python::LANGUAGE.into(), source) {
+    if File::from_str(tree_sitter_python::LANGUAGE.into(), source).is_ok() {
         panic!("Parse succeeded unexpectedly");
     }
 }
@@ -1048,7 +1048,7 @@ fn cannot_parse_for_in_optional_capture() {
           }
         }
     "#;
-    if let Ok(_) = File::from_str(tree_sitter_python::LANGUAGE.into(), source) {
+    if File::from_str(tree_sitter_python::LANGUAGE.into(), source).is_ok() {
         panic!("Parse succeeded unexpectedly");
     }
 }
@@ -1067,7 +1067,7 @@ fn cannot_parse_scan_of_nonlocal_call_expression() {
         }
       }
     "#;
-    if let Ok(_) = File::from_str(tree_sitter_python::LANGUAGE.into(), source) {
+    if File::from_str(tree_sitter_python::LANGUAGE.into(), source).is_ok() {
         panic!("Parse succeeded unexpectedly");
     }
 }
@@ -1087,7 +1087,7 @@ fn cannot_parse_scan_of_nonlocal_variable() {
         }
       }
     "#;
-    if let Ok(_) = File::from_str(tree_sitter_python::LANGUAGE.into(), source) {
+    if File::from_str(tree_sitter_python::LANGUAGE.into(), source).is_ok() {
         panic!("Parse succeeded unexpectedly");
     }
 }
@@ -1307,7 +1307,7 @@ fn cannot_parse_undeclared_global() {
           edge n -> root
         }
     "#;
-    if let Ok(_) = File::from_str(tree_sitter_python::LANGUAGE.into(), source) {
+    if File::from_str(tree_sitter_python::LANGUAGE.into(), source).is_ok() {
         panic!("Parse succeeded unexpectedly");
     }
 }
@@ -1469,7 +1469,7 @@ fn cannot_parse_global_with_unknown_quantifier() {
           node root
         }
     "#;
-    if let Ok(_) = File::from_str(tree_sitter_python::LANGUAGE.into(), source) {
+    if File::from_str(tree_sitter_python::LANGUAGE.into(), source).is_ok() {
         panic!("Parse succeeded unexpectedly");
     }
 }
@@ -1483,9 +1483,10 @@ fn cannot_parse_hiding_global() {
           node root
         }
     "#;
-    if let Ok(_) = File::from_str(tree_sitter_python::LANGUAGE.into(), source) {
-        panic!("Parse succeeded unexpectedly");
-    }
+    let Ok(_) = File::from_str(tree_sitter_python::LANGUAGE.into(), source) else {
+        return;
+    };
+    panic!("Parse succeeded unexpectedly");
 }
 
 #[test]
@@ -1497,7 +1498,7 @@ fn cannot_parse_set_global() {
           set root = #null
         }
     "#;
-    if let Ok(_) = File::from_str(tree_sitter_python::LANGUAGE.into(), source) {
+    if File::from_str(tree_sitter_python::LANGUAGE.into(), source).is_ok() {
         panic!("Parse succeeded unexpectedly");
     }
 }
@@ -1558,7 +1559,7 @@ fn cannot_parse_multiple_patterns() {
         {
         }
     "#;
-    if let Ok(_) = File::from_str(tree_sitter_python::LANGUAGE.into(), source) {
+    if File::from_str(tree_sitter_python::LANGUAGE.into(), source).is_ok() {
         panic!("Parse succeeded unexpectedly");
     }
 }
@@ -1608,7 +1609,7 @@ fn cannot_parse_unused_capture() {
         (function_definition name: (identifier) @name) {
         }
     "#;
-    if let Ok(_) = File::from_str(tree_sitter_python::LANGUAGE.into(), source) {
+    if File::from_str(tree_sitter_python::LANGUAGE.into(), source).is_ok() {
         panic!("Parse succeeded unexpectedly");
     }
 }

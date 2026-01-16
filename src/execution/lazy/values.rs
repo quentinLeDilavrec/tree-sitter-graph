@@ -119,7 +119,7 @@ impl From<LazyCall> for LazyValue {
 }
 
 impl LazyValue {
-    pub(super) fn evaluate<'a, G: WithSynNodes>(
+    pub(super) fn evaluate<G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<Value, ExecutionError>
@@ -138,7 +138,7 @@ where {
         Ok(ret)
     }
 
-    pub(super) fn evaluate_as_graph_node<'a, G: WithSynNodes>(
+    pub(super) fn evaluate_as_graph_node<G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<GraphNodeRef, ExecutionError>
@@ -150,7 +150,7 @@ where {
         }
     }
 
-    pub(super) fn evaluate_as_syntax_node<'a, G: WithSynNodes>(
+    pub(super) fn evaluate_as_syntax_node<G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<SyntaxNodeRef, ExecutionError>
@@ -191,7 +191,7 @@ impl LazyScopedVariable {
         }
     }
 
-    fn resolve<'a, 'b, G: WithSynNodes>(
+    fn resolve<'a, G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'a, G>,
     ) -> Result<LazyValue, ExecutionError> {
@@ -204,7 +204,7 @@ impl LazyScopedVariable {
         scoped_store.evaluate(&scope, &self.name, exec)
     }
 
-    pub(super) fn evaluate<'a, G: WithSynNodes>(
+    pub(super) fn evaluate<G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<Value, ExecutionError>
@@ -231,7 +231,7 @@ impl LazyList {
         Self { elements }
     }
 
-    pub(super) fn evaluate<'a, G: WithSynNodes>(
+    pub(super) fn evaluate<G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<Value, ExecutionError>
@@ -272,7 +272,7 @@ impl LazySet {
         Self { elements }
     }
 
-    pub(super) fn evaluate<'a, G: WithSynNodes>(
+    pub(super) fn evaluate<G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<Value, ExecutionError>
@@ -317,7 +317,7 @@ impl LazyCall {
         }
     }
 
-    pub(super) fn evaluate<'a, G: WithSynNodes>(
+    pub(super) fn evaluate<G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<Value, ExecutionError>

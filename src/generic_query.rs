@@ -130,7 +130,7 @@ mod ts {
         ) -> <Self as MatchesLending<'a>>::Matches {
             // ) -> <Query as NodeLending<'_>>::Matches<'query, 'cursor> {
             // let matches = cursor.matches(self, node, source.as_bytes());
-            let matches = cursor.matches(self, node.node, node.source.as_bytes());
+            let _matches = cursor.matches(self, node.node, node.source.as_bytes());
             todo!()
             // MyQM {
             //     qm: matches,
@@ -159,6 +159,12 @@ impl<'tree> std::ops::Deref for MyTSNode<'tree> {
 
     fn deref(&self) -> &Self::Target {
         &self.node
+    }
+}
+
+impl<'tree> MyTSNode<'tree> {
+    pub fn new(node: tree_sitter::Node<'tree>, source: &'tree str) -> Self {
+        Self { node, source }
     }
 }
 
@@ -353,10 +359,7 @@ impl<'cursor, 'tree> crate::graph::QMatch for MyQueryMatch<'cursor, 'tree> {
 
 impl<'tree> Clone for MyTSNode<'tree> {
     fn clone(&self) -> Self {
-        Self {
-            node: self.node,
-            source: self.source,
-        }
+        *self
     }
 }
 
@@ -365,7 +368,7 @@ pub struct MyQM<'query, 'tree> {
     pub(crate) qm: tree_sitter::QueryMatches<'query, 'tree, &'tree [u8], &'tree [u8]>,
 }
 
-impl<'a, 'query, 'tree> QueryWithLang for MyQM<'query, 'tree> {
+impl<'query, 'tree> QueryWithLang for MyQM<'query, 'tree> {
     type Lang = tree_sitter::Language;
     type I = u32;
 }

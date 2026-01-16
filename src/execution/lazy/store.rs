@@ -39,7 +39,7 @@ impl LazyVariable {
         Self { store_location }
     }
 
-    pub(super) fn evaluate<'a, G: WithSynNodes>(
+    pub(super) fn evaluate<G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<graph::Value, ExecutionError> {
@@ -74,7 +74,7 @@ impl LazyStore {
         variable
     }
 
-    pub(super) fn evaluate<'a, G: WithSynNodes>(
+    pub(super) fn evaluate<G: WithSynNodes>(
         &self,
         variable: &LazyVariable,
         exec: &mut EvaluationContext<'_, G>,
@@ -86,7 +86,7 @@ where {
         Ok(value)
     }
 
-    pub(super) fn evaluate_all<'a, G: WithSynNodes>(
+    pub(super) fn evaluate_all<G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError> {
@@ -140,7 +140,7 @@ impl LazyScopedVariables {
         }
     }
 
-    pub(super) fn evaluate<'a, G: WithSynNodes>(
+    pub(super) fn evaluate<G: WithSynNodes>(
         &self,
         scope: &SyntaxNodeRef,
         name: &Identifier,
@@ -180,7 +180,7 @@ impl LazyScopedVariables {
         result.ok_or_else(|| ExecutionError::UndefinedScopedVariable(format!("{}.{}", scope, name)))
     }
 
-    pub(super) fn evaluate_all<'a, G: WithSynNodes>(
+    pub(super) fn evaluate_all<G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError> {
@@ -192,7 +192,7 @@ impl LazyScopedVariables {
         Ok(())
     }
 
-    fn force<'a, G: WithSynNodes>(
+    fn force<G: WithSynNodes>(
         &self,
         name: &Identifier,
         values: ScopedValues,
@@ -279,7 +279,7 @@ impl Thunk {
         }
     }
 
-    fn force<'a, G: WithSynNodes>(
+    fn force<G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<graph::Value, ExecutionError> {

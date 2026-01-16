@@ -58,8 +58,8 @@ fn can_display_graph() {
     let tree = parser.parse(python_source, None).unwrap();
 
     let mut graph = Graph::<MyTSNode<'_>>::new();
-    let root = graph.add_syntax_node(todo!("would need to expose usually uneeded API, best would be to wrap parser"));
-    // let root = graph.add_syntax_node(tree.root_node());
+    // let root = graph.add_syntax_node(todo!("would need to expose usually uneeded API, best would be to wrap parser"));
+    let root = graph.add_syntax_node(MyTSNode::new(tree.root_node(), python_source));
     let node0 = graph.add_graph_node();
     graph[node0]
         .attributes

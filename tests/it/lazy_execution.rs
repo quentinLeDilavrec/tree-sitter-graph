@@ -37,8 +37,8 @@ fn execute(python_source: &str, dsl_source: &str) -> Result<String, ExecutionErr
     globals
         .add("filename".into(), "test.py".into())
         .map_err(|_| ExecutionError::DuplicateVariable("filename".into()))?;
-    let mut config = ExecutionConfig::new(&functions, &globals).lazy(true);
-    let graph = file.execute(&tree, python_source, &mut config, &NoCancellation)?;
+    let config = ExecutionConfig::new(&functions, &globals).lazy(true);
+    let graph = file.execute(&tree, python_source, &config, &NoCancellation)?;
     let result = graph.pretty_print().to_string();
     Ok(result)
 }

@@ -51,7 +51,7 @@ impl LazyGraph {
         }
     }
 
-    pub(super) fn evaluate<'a, G: WithSynNodes>(
+    pub(super) fn evaluate<G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
@@ -79,7 +79,7 @@ pub(super) enum LazyStatement {
 }
 
 impl LazyStatement {
-    pub(super) fn evaluate<'a, G: WithSynNodes>(
+    pub(super) fn evaluate<G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
@@ -162,7 +162,7 @@ impl LazyAddGraphNodeAttribute {
         }
     }
 
-    pub(super) fn evaluate<'a, G: WithSynNodes>(
+    pub(super) fn evaluate<G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
@@ -179,7 +179,8 @@ where {
             );
             if exec.graph[node]
                 .attrs_mut()
-                .add(attribute.name.clone(), value).is_err()
+                .add(attribute.name.clone(), value)
+                .is_err()
             {
                 return Err(ExecutionError::DuplicateAttribute(format!(
                     "{} on {}",
@@ -232,7 +233,7 @@ impl LazyCreateEdge {
         }
     }
 
-    pub(super) fn evaluate<'a, G: WithSynNodes>(
+    pub(super) fn evaluate<G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
@@ -287,7 +288,7 @@ impl LazyAddEdgeAttribute {
         }
     }
 
-    pub(super) fn evaluate<'a, G: WithSynNodes>(
+    pub(super) fn evaluate<G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>
@@ -362,7 +363,7 @@ impl LazyPrint {
         }
     }
 
-    pub(super) fn evaluate<'a, G: WithSynNodes>(
+    pub(super) fn evaluate<G: WithSynNodes>(
         &self,
         exec: &mut EvaluationContext<'_, G>,
     ) -> Result<(), ExecutionError>

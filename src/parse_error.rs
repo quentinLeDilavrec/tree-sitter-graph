@@ -266,7 +266,12 @@ impl TreeWithParseErrorOption {
         let mut errors = Vec::new();
         find_errors(&tree, &mut errors, true);
         Self {
-            error: unsafe { std::mem::transmute(errors.into_iter().next()) },
+            error: unsafe {
+                std::mem::transmute::<
+                    std::option::Option<ParseError<'_>>,
+                    std::option::Option<ParseError<'static>>,
+                >(errors.into_iter().next())
+            },
             tree,
         }
     }
@@ -319,7 +324,12 @@ impl TreeWithParseErrorVec {
         let mut errors = Vec::new();
         find_errors(&tree, &mut errors, false);
         TreeWithParseErrorVec {
-            errors: unsafe { std::mem::transmute(errors) },
+            errors: unsafe {
+                std::mem::transmute::<
+                    std::vec::Vec<ParseError<'_>>,
+                    std::vec::Vec<ParseError<'static>>,
+                >(errors)
+            },
             tree,
         }
     }

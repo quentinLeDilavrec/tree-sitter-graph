@@ -91,7 +91,7 @@ impl File<Query> {
         let mut globals = Globals::nested(config.globals);
         self.check_globals(&mut globals).unwrap(); // TODO go back to qmark
                                                    // self.check_globals(&mut globals)?;
-        let mut config = ExecutionConfig {
+        let config = ExecutionConfig {
             functions: config.functions,
             globals: &globals,
             lazy: config.lazy,
@@ -110,7 +110,7 @@ impl File<Query> {
                 source,
                 &mat,
                 graph,
-                &mut config,
+                &config,
                 &mut locals,
                 &mut scoped,
                 &current_regex_captures,
@@ -146,7 +146,7 @@ impl<Q: GenQuery, I: Copy> File<Q, I> {
     /// text that it was parsed from (`source`).  You also provide the set of functions and global
     /// variables that are available during execution. This variant is useful when you need to
     /// “pre-seed” the graph with some predefined nodes and/or edges before executing the DSL file.
-    pub fn execute_strict_into2<G: WithSynNodes, QM: QMatch>(
+    pub fn execute_strict_into2<G: WithSynNodes, QM>(
         &self,
         graph: &mut G,
         tree: <Q as NodeLending<'_>>::SNode,
@@ -161,7 +161,7 @@ impl<Q: GenQuery, I: Copy> File<Q, I> {
     {
         let mut globals = Globals::nested(config.globals);
         self.check_globals(&mut globals)?;
-        let mut config = ExecutionConfig {
+        let config = ExecutionConfig {
             functions: config.functions,
             globals: &globals,
             lazy: config.lazy,
@@ -187,7 +187,7 @@ impl<Q: GenQuery, I: Copy> File<Q, I> {
                 stanza.execute2(
                     &mat,
                     graph,
-                    &mut config,
+                    &config,
                     &mut locals,
                     &mut scoped,
                     &current_regex_captures,
@@ -202,6 +202,7 @@ impl<Q: GenQuery, I: Copy> File<Q, I> {
     }
 }
 
+#[allow(type_alias_bounds)]
 type LendM<'v, 'w, T: MatchesLending<'v>> = <T::Matches as MatchLending<'w>>::Match;
 
 type LendNS<'u, QM> = <QM as NodesLending<'u>>::Nodes;
@@ -252,7 +253,7 @@ impl<'a> ScopedVariables<'a> {
 impl Stanza<Query> {
     fn execute<'tree>(
         &self,
-        source: &'tree str,
+        _source: &'tree str,
         mat: &MyQueryMatch<'_, 'tree>,
         graph: &mut Graph<MyTSNode<'tree>>,
         config: &ExecutionConfig<'_, '_, '_, crate::graph::Graph<crate::MyTSNode<'tree>>>,

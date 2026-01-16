@@ -180,7 +180,7 @@ impl Location {
         }
     }
 
-    pub(crate) fn to_column_range(&self) -> std::ops::Range<usize> {
+    pub(crate) fn to_column_range(self) -> std::ops::Range<usize> {
         self.column..self.column + 1
     }
 }
@@ -966,7 +966,7 @@ impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
         let start = self.offset;
         self.consume_while(|ch| ch.is_ascii_digit());
         let end = self.offset;
-        let value = u32::from_str_radix(&self.source[start..end], 10).unwrap();
+        let value = self.source[start..end].parse::<u32>().unwrap();
         Ok(ast::IntegerConstant { value }.into())
     }
 
@@ -997,7 +997,7 @@ impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
         if start == end {
             return Err(ParseError::InvalidRegexCapture(regex_capture_location));
         }
-        let match_index = usize::from_str_radix(&self.source[start..end], 10).unwrap();
+        let match_index = self.source[start..end].parse::<usize>().unwrap();
         Ok(ast::RegexCapture { match_index })
     }
 

@@ -41,7 +41,7 @@ impl File<tree_sitter::Query> {
     /// Executes this graph DSL file against a source file.  You must provide the parsed syntax
     /// tree (`tree`) as well as the source text that it was parsed from (`source`).  You also
     /// provide the set of functions and global variables that are available during execution.
-    pub fn execute<'a, 'tree>(
+    pub fn execute<'tree>(
         &self,
         tree: &'tree Tree,
         source: &'tree str,
@@ -58,7 +58,7 @@ impl File<tree_sitter::Query> {
     /// text that it was parsed from (`source`).  You also provide the set of functions and global
     /// variables that are available during execution. This variant is useful when you need to
     /// “pre-seed” the graph with some predefined nodes and/or edges before executing the DSL file.
-    pub fn execute_into<'a, 'tree>(
+    pub fn execute_into<'tree>(
         &self,
         graph: &mut Graph<MyTSNode<'tree>>,
         tree: &'tree Tree,
@@ -157,11 +157,12 @@ impl<Q: crate::GenQuery, I> File<Q, I> {
                 Some(value) => {
                     if (global.quantifier == CaptureQuantifier::ZeroOrMore
                         || global.quantifier == CaptureQuantifier::OneOrMore)
-                        && value.as_list().is_err() {
-                            return Err(ExecutionError::ExpectedList(
-                                global.name.as_str().to_string(),
-                            ));
-                        }
+                        && value.as_list().is_err()
+                    {
+                        return Err(ExecutionError::ExpectedList(
+                            global.name.as_str().to_string(),
+                        ));
+                    }
                 }
             }
         }
@@ -408,12 +409,13 @@ impl CancellationFlag for NoCancellation {
 pub struct CancellationError(pub &'static str);
 
 impl Value {
-    pub fn from_nodes<NI: NodeLender, G: WithSynNodes>(
+    pub fn from_nodes<NI, G: WithSynNodes>(
         graph: &mut G,
         nodes: NI,
         quantifier: CaptureQuantifier,
     ) -> Value
     where
+        NI: NodeLender,
         for<'t> NI: NodeLending<'t, SNode = <G as NodeLending<'t>>::SNode>,
     {
         let mut nodes = nodes; //.into_iter();

@@ -207,7 +207,7 @@ impl ast::File<Query> {
     ) -> Result<(), ExecutionError> {
         let mut globals = Globals::nested(config.globals);
         self.check_globals(&mut globals)?;
-        let mut config = ExecutionConfig {
+        let config = ExecutionConfig {
             functions: config.functions,
             globals: &globals,
             lazy: config.lazy,
@@ -224,7 +224,7 @@ impl ast::File<Query> {
                 source,
                 &mat,
                 graph,
-                &mut config,
+                &config,
                 &mut ctx,
                 &self.inherited_variables,
                 &self.shorthands,
@@ -305,7 +305,7 @@ impl<Q: GenQuery, I: Copy> ast::File<Q, I> {
     {
         let mut globals = Globals::nested(config.globals);
         self.check_globals(&mut globals)?;
-        let mut config = ExecutionConfig {
+        let config = ExecutionConfig {
             functions: config.functions,
             globals: &globals,
             lazy: config.lazy,
@@ -324,7 +324,7 @@ impl<Q: GenQuery, I: Copy> ast::File<Q, I> {
             stanza.execute_lazy2(
                 &mat,
                 graph,
-                &mut config,
+                &config,
                 &mut ctx,
                 &self.inherited_variables,
                 &self.shorthands,
@@ -368,7 +368,7 @@ pub struct ExecutionContext<
 }
 
 /// Context for evaluation, which evaluates the lazy graph to build the actual graph
- struct EvaluationContext<'a, G> {
+struct EvaluationContext<'a, G> {
     pub graph: &'a mut G,
     pub functions: &'a Functions<G>,
     pub store: &'a LazyStore,
@@ -394,7 +394,7 @@ pub(super) enum GraphElementKey {
 impl ast::Stanza<Query> {
     fn execute_lazy<'tree>(
         &self,
-        source: &'tree str,
+        _source: &'tree str,
         mat: &MyQueryMatch<'_, 'tree>,
         graph: &mut Graph<MyTSNode<'tree>>,
         config: &ExecutionConfig<Graph<MyTSNode<'tree>>>,
@@ -918,7 +918,7 @@ impl ast::Expression {
 }
 
 impl ast::IntegerConstant {
-    fn evaluate_lazy<'a, G: WithSynNodes, QM: QMatch>(
+    fn evaluate_lazy<G: WithSynNodes, QM: QMatch>(
         &self,
         _exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError> {
@@ -927,7 +927,7 @@ impl ast::IntegerConstant {
 }
 
 impl ast::StringConstant {
-    fn evaluate_lazy<'a, G: WithSynNodes, QM: QMatch>(
+    fn evaluate_lazy<G: WithSynNodes, QM: QMatch>(
         &self,
         _exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError> {
@@ -1047,6 +1047,7 @@ impl ast::SetComprehension {
 
 // type LendNN<'t, 'u, 'v, 'w, Q: GenQuery> = LendN<'t, 'u, LendM<'v, 'w, Q>>;
 
+#[allow(type_alias_bounds)]
 type LendM<'v, 'w, T: MatchesLending<'v>> = <T::Matches as MatchLending<'w>>::Match;
 
 // type LendN<'t, 'u, QM: QMatch> = LendS<'t, <QM as NodesLending<'u>>::Nodes>;
@@ -1091,7 +1092,7 @@ impl ast::Call {
 }
 
 impl ast::RegexCapture {
-    fn evaluate_lazy<'a, G: WithSynNodes, QM: QMatch>(
+    fn evaluate_lazy<G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError> {
@@ -1194,7 +1195,7 @@ impl ast::ScopedVariable {
 }
 
 impl ast::UnscopedVariable {
-    fn evaluate_lazy<'a, G: WithSynNodes, QM: QMatch>(
+    fn evaluate_lazy<G: WithSynNodes, QM: QMatch>(
         &self,
         exec: &mut ExecutionContext<G, QM>,
     ) -> Result<LazyValue, ExecutionError> {
