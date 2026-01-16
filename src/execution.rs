@@ -95,8 +95,8 @@ impl File<tree_sitter::Query> {
                             .capture_index_for_name(name)
                             .expect("missing index for capture");
                         let quantifier =
-                            file_query.capture_quantifiers(mat.pattern_index)[index as usize];
-                        (name.to_string(), quantifier, index)
+                            file_query.capture_quantifiers(mat.pattern_index())[index as usize];
+                        (*name, quantifier, index)
                     })
                     .filter(|c| c.2 != stanza.full_match_file_capture_index as u32)
                     .collect();
@@ -119,7 +119,7 @@ impl File<tree_sitter::Query> {
                             .capture_index_for_name(name)
                             .expect("missing index for capture");
                         let quantifier = stanza.query.capture_quantifiers(0)[index as usize];
-                        (name.to_string(), quantifier, index)
+                        (*name, quantifier, index)
                     })
                     .filter(|c| c.2 != stanza.full_match_stanza_capture_index as u32)
                     .collect();
@@ -170,6 +170,66 @@ impl<Q: crate::GenQuery, I> File<Q, I> {
 
         Ok(())
     }
+
+    // pub fn try_visit_matches<'tree, E, F>(
+    //     &self,
+    //     tree: &'tree Tree,
+    //     source: &'tree str,
+    //     lazy: bool,
+    //     mut visit: F,
+    // ) -> Result<(), E>
+    // where
+    //     F: FnMut(Match<'_, 'tree>) -> Result<(), E>,
+    // {
+    //     if lazy {
+    //         let file_query = self.query.as_ref().expect("missing file query");
+    //         self.try_visit_matches_lazy(tree, source, |stanza, mat| {
+    //             let named_captures = stanza
+    //                 .query
+    //                 .capture_names()
+    //                 .iter()
+    //                 .map(|name| {
+    //                     let index = file_query
+    //                         .capture_index_for_name(*name)
+    //                         .expect("missing index for capture");
+    //                     let quantifier =
+    //                         file_query.capture_quantifiers(mat.pattern_index)[index as usize];
+    //                     (*name, quantifier, index)
+    //                 })
+    //                 .filter(|c| c.2 != stanza.full_match_file_capture_index as u32)
+    //                 .collect();
+    //             visit(Match {
+    //                 mat,
+    //                 full_capture_index: stanza.full_match_file_capture_index as u32,
+    //                 named_captures,
+    //                 query_location: stanza.range.start,
+    //             })
+    //         })
+    //     } else {
+    //         self.try_visit_matches_strict(tree, source, |stanza, mat| {
+    //             let named_captures = stanza
+    //                 .query
+    //                 .capture_names()
+    //                 .iter()
+    //                 .map(|name| {
+    //                     let index = stanza
+    //                         .query
+    //                         .capture_index_for_name(*name)
+    //                         .expect("missing index for capture");
+    //                     let quantifier = stanza.query.capture_quantifiers(0)[index as usize];
+    //                     (*name, quantifier, index)
+    //                 })
+    //                 .filter(|c| c.2 != stanza.full_match_stanza_capture_index as u32)
+    //                 .collect();
+    //             visit(Match {
+    //                 mat,
+    //                 full_capture_index: stanza.full_match_stanza_capture_index as u32,
+    //                 named_captures,
+    //                 query_location: stanza.range.start,
+    //             })
+    //         })
+    //     }
+    // }
 }
 
 impl Stanza<tree_sitter::Query> {
@@ -183,17 +243,17 @@ impl Stanza<tree_sitter::Query> {
         F: FnMut(Match<MyQueryMatch<'_, 'tree>>) -> Result<(), E>,
     {
         self.try_visit_matches_strict(tree, source, |mat| {
-            let named_captures: Vec<(String, CaptureQuantifier, u32)> = self
+            let named_captures: Vec<(_, CaptureQuantifier, u32)> = self
                 .query
                 .capture_names()
                 .iter()
-                .flat_map(|name| {
-                    if let Some(index) = self.query.capture_index_for_name(name) {
-                        let quantifier = self.query.capture_quantifiers(0)[index as usize];
-                        Some((name.to_string(), quantifier, index))
-                    } else {
-                        None
-                    }
+                .map(|name| {
+                    let index = self
+                        .query
+                        .capture_index_for_name(*name)
+                        .expect("missing index for capture");
+                    let quantifier = self.query.capture_quantifiers(0)[index as usize];
+                    (*name, quantifier, index)
                 })
                 .filter(|c| c.2 != self.full_match_stanza_capture_index)
                 .collect();
@@ -207,14 +267,37 @@ impl Stanza<tree_sitter::Query> {
     }
 }
 
-pub struct Match<QM> {
-    mat: QM, // QueryMatch<'a, 'tree>
+pub struct Match<'a, QM> {
+    mat: QM,
     full_capture_index: u32,
-    named_captures: Vec<(String, CaptureQuantifier, u32)>,
+    named_captures: Vec<(&'a str, CaptureQuantifier, u32)>,
     query_location: Location,
 }
 
-impl<'a, 'tree> Match<QueryMatch<'a, 'tree>> {
+impl<'a, 'tree> Match<'a, QueryMatch<'a, 'tree>> {
+    /// Return the top-level matched node.
+    pub fn full_capture(&self) -> Node<'tree> {
+        self.mat
+            .nodes_for_capture_index(self.full_capture_index)
+            .next()
+            .expect("missing full capture")
+    }
+
+    /// Return the matched nodes for a named capture.
+    pub fn named_captures<'s: 'a + 'tree>(
+        &'s self,
+    ) -> impl Iterator<
+        Item = (
+            &'a str,
+            CaptureQuantifier,
+            impl Iterator<Item = Node<'tree>> + 's,
+        ),
+    > {
+        self.named_captures
+            .iter()
+            .map(move |c| (c.0, c.1, self.mat.nodes_for_capture_index(c.2)))
+    }
+
     /// Return the matched nodes for a named capture.
     pub fn named_capture<'s: 'a + 'tree>(
         &'s self,
@@ -227,7 +310,7 @@ impl<'a, 'tree> Match<QueryMatch<'a, 'tree>> {
     }
 }
 
-impl<QM: QMatch> Match<QM> {
+impl<'a, QM: QMatch> Match<'a, QM> {
     /// Return the top-level matched node.
     pub fn full_capture(&self) -> crate::graph::NNN<'_, '_, QM> {
         self.mat
@@ -242,7 +325,7 @@ impl<QM: QMatch> Match<QM> {
     {
         self.named_captures.iter().map(move |c| {
             (
-                c.0.clone(),
+                c.0.to_string(),
                 c.1,
                 self.mat.nodes_for_capture_index((c.2 as u32).into()),
             )
@@ -250,8 +333,8 @@ impl<QM: QMatch> Match<QM> {
     }
 
     /// Return an iterator over all capture names.
-    pub fn capture_names(&self) -> impl Iterator<Item = String> + '_ {
-        self.named_captures.iter().map(|c| c.0.clone())
+    pub fn capture_names(&self) -> impl Iterator<Item = &str> {
+        self.named_captures.iter().map(|c| c.0)
     }
 
     /// Return the query location.

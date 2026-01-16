@@ -18,6 +18,8 @@ use tree_sitter::Query;
 use tree_sitter::QueryCursor;
 use tree_sitter::Tree;
 
+use streaming_iterator::StreamingIterator;
+
 use crate::ast;
 use crate::execution::error::ExecutionError;
 use crate::execution::error::ResultWithExecutionError;
@@ -242,10 +244,15 @@ impl ast::File<Query> {
     {
         let mut cursor = QueryCursor::new();
         let query = self.query.as_ref().unwrap();
-        let matches = cursor.matches(query, tree.root_node(), source.as_bytes());
-        for mat in matches {
+        let mut matches = cursor.matches(query, tree.root_node(), source.as_bytes());
+        while let Some(mat) = matches.next() {
             let stanza = &self.stanzas[mat.pattern_index];
-            let mat = MyQueryMatch { mat, source };
+            let mat = MyQueryMatch {
+                source,
+                id: mat.id(),
+                pattern_index: mat.pattern_index,
+                captures: mat.captures,
+            };
             visit(stanza, mat)?;
         }
         Ok(())

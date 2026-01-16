@@ -231,7 +231,7 @@ impl<'a, ExtQ: ExtendedableQuery> Parser<'a, ExtQ> {
         let query_source = ExtQ::with_capacity(source.len());
         Self::with_ext(query_source, source)
     }
-    
+
     pub fn with_ext(query_source: ExtQ, source: &'a str) -> Parser<'a, ExtQ> {
         let chars = source.chars().peekable();
         Parser {

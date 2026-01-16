@@ -8,7 +8,10 @@
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use streaming_iterator::StreamingIterator;
 use tree_sitter::Query;
+use tree_sitter::QueryCursor;
+use tree_sitter::QueryMatch;
 use tree_sitter::Tree;
 
 use crate::ast::AddEdgeAttribute;
@@ -348,10 +351,15 @@ impl Stanza<Query> {
     where
         F: FnMut(MyQueryMatch<'_, 'tree>) -> Result<(), E>,
     {
-        let mut cursor = tree_sitter::QueryCursor::new();
-        let matches = cursor.matches(&self.query, tree.root_node(), source.as_bytes());
-        for mat in matches {
-            let mat = MyQueryMatch { mat, source };
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&self.query, tree.root_node(), source.as_bytes());
+        while let Some(mat) = matches.next() {
+            let mat = MyQueryMatch {
+                source,
+                id: mat.id(),
+                pattern_index: mat.pattern_index,
+                captures: mat.captures,
+            };
             visit(mat)?;
         }
         Ok(())

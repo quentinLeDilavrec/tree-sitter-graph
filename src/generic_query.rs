@@ -76,7 +76,7 @@ mod ts {
     }
 
     impl<'a> MatchesLending<'a> for Query {
-        type Matches = MyQM<'a, 'a, 'a>;
+        type Matches = MyQM<'a, 'a>;
     }
 
     impl<'a> NodeLending<'a> for Query {
@@ -230,33 +230,44 @@ impl<'tree> SyntaxNodeExt for MyTSNode<'tree> {
             }
             let node = cursor.node();
             cursor.goto_next_sibling();
-            MyTSNode {
-                node,
-                source: source,
-            }
+            MyTSNode { node, source }
         })
     }
 }
 
 pub struct MyQueryMatch<'cursor, 'tree> {
-    pub mat: tree_sitter::QueryMatch<'cursor, 'tree>,
+    pub pattern_index: usize,
+    pub captures: &'cursor [tree_sitter::QueryCapture<'tree>],
+    pub id: u32,
+    // pub mat: tree_sitter::QueryMatch<'cursor, 'tree>,
     pub source: &'tree str,
 }
 impl<'cursor, 'tree> std::fmt::Debug for MyQueryMatch<'cursor, 'tree> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MyTSQueryMatch")
-            .field("mat", &self.mat)
+            // .field("mat", &self.mat)
             .finish()
     }
 }
 
-impl<'cursor, 'tree> std::ops::Deref for MyQueryMatch<'cursor, 'tree> {
-    type Target = tree_sitter::QueryMatch<'cursor, 'tree>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.mat
+impl<'cursor, 'tree> MyQueryMatch<'cursor, 'tree> {
+    pub fn nodes_for_capture_index(
+        &self,
+        capture_ix: u32,
+    ) -> impl Iterator<Item = tree_sitter::Node<'tree>> + '_ {
+        self.captures
+            .iter()
+            .filter_map(move |capture| (capture.index == capture_ix).then_some(capture.node))
     }
 }
+
+// impl<'cursor, 'tree> std::ops::Deref for MyQueryMatch<'cursor, 'tree> {
+//     type Target = tree_sitter::QueryMatch<'cursor, 'tree>;
+
+//     fn deref(&self) -> &Self::Target {
+//         &self.mat
+//     }
+// }
 
 pub struct CapturedNodesIter<'cursor, 'tree> {
     index: u32,
@@ -303,7 +314,7 @@ impl<'cursor, 'tree> crate::graph::QMatch for MyQueryMatch<'cursor, 'tree> {
     fn nodes_for_capture_index(&self, index: Self::I) -> CapturedNodesIter<'cursor, 'tree> {
         CapturedNodesIter {
             index,
-            inner: self.mat.captures,
+            inner: self.captures,
             source: self.source,
         }
     }
@@ -311,7 +322,7 @@ impl<'cursor, 'tree> crate::graph::QMatch for MyQueryMatch<'cursor, 'tree> {
     fn nodes_for_capture_indexi(&self, index: Self::I) -> Option<NNN<'_, '_, Self>> {
         CapturedNodesIter {
             index,
-            inner: self.mat.captures,
+            inner: self.captures,
             source: self.source,
         }
         .next()
@@ -323,12 +334,12 @@ impl<'cursor, 'tree> crate::graph::QMatch for MyQueryMatch<'cursor, 'tree> {
     ) -> impl NodeLender + NodeLending<'_, SNode = NNN<'_, '_, Self>> {
         CapturedNodesIter {
             index,
-            inner: self.mat.captures,
+            inner: self.captures,
             source: self.source,
         }
     }
     fn pattern_index(&self) -> usize {
-        self.mat.pattern_index
+        self.pattern_index
     }
 
     fn syn_node_ref(&self, node: &NNN<'_, '_, Self>) -> crate::graph::SyntaxNodeRef {
@@ -349,58 +360,57 @@ impl<'tree> Clone for MyTSNode<'tree> {
     }
 }
 
-pub struct MyQM<'query, 'cursor, 'tree> {
+pub struct MyQM<'query, 'tree> {
     pub source: &'tree str,
-    pub(crate) qm: tree_sitter::QueryMatches<'query, 'cursor, &'tree [u8], &'tree [u8]>,
+    pub(crate) qm: tree_sitter::QueryMatches<'query, 'tree, &'tree [u8], &'tree [u8]>,
 }
 
-impl<'a, 'query, 'cursor: 'query, 'tree: 'cursor + 'query> QueryWithLang
-    for MyQM<'query, 'cursor, 'tree>
-{
+impl<'a, 'query, 'tree> QueryWithLang for MyQM<'query, 'tree> {
     type Lang = tree_sitter::Language;
     type I = u32;
 }
 
-impl<'a, 'query, 'cursor: 'query, 'tree: 'cursor + 'query> NodeLending<'a>
-    for MyQM<'query, 'cursor, 'tree>
-{
+impl<'a, 'query, 'tree> NodeLending<'a> for MyQM<'query, 'tree> {
     type SNode = MyTSNode<'a>;
 }
 
-impl<'a, 'query, 'cursor: 'query, 'tree: 'cursor + 'query> MatchLending<'a>
-    for MyQM<'query, 'cursor, 'tree>
-{
-    type Match = MyQueryMatch<'cursor, 'tree>;
+impl<'a, 'query, 'tree> MatchLending<'a> for MyQM<'query, 'tree> {
+    type Match = MyQueryMatch<'a, 'tree>;
 }
-impl<'a, 'query, 'cursor: 'query, 'tree: 'cursor + 'query> MatchLender
-    for MyQM<'query, 'cursor, 'tree>
-{
+
+impl<'query, 'tree> MatchLender for MyQM<'query, 'tree> {
     fn next(&mut self) -> Option<<Self as MatchLending<'_>>::Match> {
+        use streaming_iterator::StreamingIterator;
         let m = self.qm.next()?;
         // TODO is there a bug in tree_sitter::QueryMatches::next ?
         // the lifetime names are not matching
-        let m = unsafe { std::mem::transmute(m) };
+        // let m = unsafe { std::mem::transmute(m) };
         Some(MyQueryMatch {
-            mat: m,
             source: self.source,
+            id: m.id(),
+            pattern_index: m.pattern_index,
+            captures: m.captures,
         })
     }
 }
 
-impl<'query, 'cursor: 'query, 'tree: 'cursor + 'query> Iterator for MyQM<'query, 'cursor, 'tree> {
-    type Item = MyQueryMatch<'cursor, 'tree>;
+// impl<'query, 'tree> Iterator for MyQM<'query, 'tree> {
+//     type Item = MyQueryMatch<'cursor, 'tree>;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        let m = self.qm.next()?;
-        // TODO is there a bug in tree_sitter::QueryMatches::next ?
-        // the lifetime names are not matching
-        let m = unsafe { std::mem::transmute(m) };
-        Some(MyQueryMatch {
-            mat: m,
-            source: self.source,
-        })
-    }
-}
+//     fn next(&mut self) -> Option<Self::Item> {
+//         use streaming_iterator::StreamingIterator;
+//         let m = self.qm.next()?;
+//         // // TODO is there a bug in tree_sitter::QueryMatches::next ?
+//         // // the lifetime names are not matching
+//         // let m = unsafe { std::mem::transmute(m) };
+//         Some(MyQueryMatch {
+//             id: m.id(),
+//             pattern_index: m.pattern_index,
+//             captures: m.captures,
+//             source: self.source,
+//         })
+//     }
+// }
 
 pub trait QueryWithLang {
     type Lang;
